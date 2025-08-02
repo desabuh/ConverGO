@@ -1,7 +1,14 @@
 package main
 
-import "fmt"
+import "github.com/desabuh/convergo/p2p"
 
 func main() {
-	fmt.Println("Test")
+	listenerAddr := ":9091"
+
+	var server = p2p.NewTCPServer(listenerAddr)
+
+	go server.ListenFor()
+
+	select {}
+
 }
