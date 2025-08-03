@@ -1,133 +1,73 @@
 package p2p
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"net"
-	"sync"
+	"time"
 )
 
-type Server interface {
-	ListenFor(address string) error
-	Shutdown() error
-}
-
-type Flag interface {
+// Peer represents a remote node view. No assumption is made about the peer's nature
+// (e.g., connection, RPC). It can be closed and sent byte representations.
+type Peer interface {
 	io.Closer
-	WaitTermination()
-	IsClosed() bool
+	Send(context.Context, []byte) error
 }
 
-type ShutDownFlag struct {
-	shutdownCh chan (struct{})
+const defaultWriteTimeout = 5 * time.Second
 
-	mu         sync.RWMutex
-	isShutDown bool
+type TCPPeer struct {
+	net.Conn
+	RemoteAddress net.Addr
 }
 
-func (s *ShutDownFlag) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func NewTCPPeer(conn net.Conn) (*TCPPeer, error) {
+	// if network := conn.RemoteAddr().Network(); network != "tcp" && network != "tcp4" && network != "tcp6" {
+	// 	return nil, fmt.Errorf("connection is not TCP: %s", network)
+	// }
 
-	if s.IsClosed() {
-		return errors.New("flag was already shut down")
+	return &TCPPeer{
+		Conn:          conn,
+		RemoteAddress: conn.RemoteAddr(),
+	}, nil
+
+}
+
+func (t *TCPPeer) Send(ctx context.Context, bytes []byte) error {
+	var deadline time.Time
+
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		deadline = ctxDeadline
+	} else {
+		deadline = time.Now().Add(defaultWriteTimeout)
 	}
 
-	s.isShutDown = true
-	close(s.shutdownCh)
-
-	return nil
-}
-
-func (s *ShutDownFlag) WaitTermination() {
-	<-s.shutdownCh
-}
-
-func (s *ShutDownFlag) IsClosed() bool {
-	return s.isShutDown
-}
-
-type TCPServer struct {
-	listener net.Listener
-	Address  string
-	shutdown Flag
-
-	msgCh chan<- []byte
-}
-
-func NewTCPServer(address string) *TCPServer {
-	return &TCPServer{
-		Address: address,
-		shutdown: &ShutDownFlag{
-			shutdownCh: make(chan struct{}),
-		},
-		msgCh: make(chan<- []byte),
+	if err := t.Conn.SetWriteDeadline(deadline); err != nil {
+		return err
 	}
-}
+	defer t.Conn.SetWriteDeadline(time.Time{})
 
-func NewTCPServerWithMsgCh(address string, msgCh chan<- []byte) *TCPServer {
-	return &TCPServer{
-		Address: address,
-		shutdown: &ShutDownFlag{
-			shutdownCh: make(chan struct{}),
-		},
-		msgCh: msgCh,
-	}
-}
+	totalSent := 0
+	for totalSent < len(bytes) {
 
-func (t *TCPServer) ListenFor() error {
-	var err error
-	t.listener, err = net.Listen("tcp", t.Address)
-
-	if err != nil {
-		return fmt.Errorf("listening error: %s", err)
-
-	}
-
-	defer t.listener.Close()
-
-	go func() {
-		for {
-			conn, err := t.listener.Accept()
-
-			if t.shutdown.IsClosed() {
-				break
-			}
-
-			if err != nil {
-				fmt.Println("connection accept error:", err)
-				continue
-			}
-
-			go t.handleConnection(conn, 1024)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
-	}()
 
-	t.shutdown.WaitTermination()
-
-	return nil
-
-}
-
-func (t *TCPServer) handleConnection(conn net.Conn, buffSize int) {
-	defer conn.Close()
-
-	for {
-		buf := make([]byte, buffSize)
-		n, err := conn.Read(buf)
+		n, err := t.Conn.Write(bytes[totalSent:])
 		if err != nil {
-			fmt.Println("byte error read: ", err)
-			if t.shutdown.IsClosed() {
-				return
-			}
+			fmt.Printf("AAAAAA:: %s", err)
+			return err
 		}
-
-		t.msgCh <- buf[:n]
+		totalSent += n
 	}
 
+	return nil
 }
 
-func (t *TCPServer) Shutdown() error {
-	return t.shutdown.Close()
+func (t *TCPPeer) Close() error {
+	return t.Conn.Close()
 }
