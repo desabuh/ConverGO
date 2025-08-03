@@ -52,6 +52,8 @@ type TCPServer struct {
 	listener net.Listener
 	Address  string
 	shutdown Flag
+
+	msgCh chan<- []byte
 }
 
 func NewTCPServer(address string) *TCPServer {
@@ -60,6 +62,17 @@ func NewTCPServer(address string) *TCPServer {
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
+		msgCh: make(chan<- []byte),
+	}
+}
+
+func NewTCPServerWithMsgCh(address string, msgCh chan<- []byte) *TCPServer {
+	return &TCPServer{
+		Address: address,
+		shutdown: &ShutDownFlag{
+			shutdownCh: make(chan struct{}),
+		},
+		msgCh: msgCh,
 	}
 }
 
@@ -68,7 +81,7 @@ func (t *TCPServer) ListenFor() error {
 	t.listener, err = net.Listen("tcp", t.Address)
 
 	if err != nil {
-		return err
+		return fmt.Errorf("listening error: %s", err)
 
 	}
 
@@ -78,12 +91,14 @@ func (t *TCPServer) ListenFor() error {
 		for {
 			conn, err := t.listener.Accept()
 
+			if t.shutdown.IsClosed() {
+				break
+			}
+
 			if err != nil {
 				fmt.Println("connection accept error:", err)
 				continue
 			}
-
-			fmt.Print("connection from", conn.RemoteAddr())
 
 			go t.handleConnection(conn, 1024)
 		}
@@ -108,8 +123,7 @@ func (t *TCPServer) handleConnection(conn net.Conn, buffSize int) {
 			}
 		}
 
-		msg := buf[:n]
-		fmt.Println(string(msg))
+		t.msgCh <- buf[:n]
 	}
 
 }
