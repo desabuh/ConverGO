@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -59,7 +58,6 @@ func (t *TCPPeer) Send(ctx context.Context, bytes []byte) error {
 
 		n, err := t.Conn.Write(bytes[totalSent:])
 		if err != nil {
-			fmt.Printf("AAAAAA:: %s", err)
 			return err
 		}
 		totalSent += n

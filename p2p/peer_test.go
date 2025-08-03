@@ -1,7 +1,9 @@
 package p2p
 
 import (
-	"fmt"
+	"context"
+	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -9,80 +11,75 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestTCPServerListen(t *testing.T) {
+func TestSynchronousPeer(t *testing.T) {
+	remoteNode, peerConn := net.Pipe()
 
-	listenerAddr := ":9091"
+	peer, err := NewTCPPeer(peerConn)
 
-	var server = NewTCPServer(listenerAddr)
+	assert.Nil(t, err, "connection should be tcp based")
 
-	go server.ListenFor()
+	defer peer.Close()
 
-	assert.Equal(t, listenerAddr, server.Address, "server listening interface address match")
+	ctx := context.Background()
 
-}
-
-func TestTCPServerShutdown(t *testing.T) {
-	listenerAddr := ":9092"
-
-	var server = NewTCPServer(listenerAddr)
-
-	terminationChannel := make(chan struct{})
+	msg := []byte("Test message")
 
 	go func() {
-		err := server.ListenFor()
+		err = peer.Send(ctx, msg)
 
-		assert.Nil(t, err, "server was shut down with success")
+		assert.Nil(t, err, "error in peer send message")
 
-		close(terminationChannel)
-
+		peer.Close()
 	}()
 
-	time.Sleep(500 * time.Millisecond) // small delay to be sure server is waiting for termination
+	data, err := io.ReadAll(remoteNode)
 
-	server.Shutdown()
+	assert.Nil(t, err, "error while reading data from connection")
 
-	<-terminationChannel
+	assert.Equal(t, data, msg, "byte read should match with byte written by remote peer")
 
 }
 
-func TestTCPReadMsgFromConnection(t *testing.T) {
+func TestSendContextDeadlineTimeout(t *testing.T) {
+	remoteNode, peerConn := net.Pipe()
+	defer remoteNode.Close()
 
-	listenerAddr := ":9093"
-	msgStr := "Test Message"
+	peer, err := NewTCPPeer(peerConn)
 
-	msgCh := make(chan []byte)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
 
-	var server = NewTCPServerWithMsgCh(listenerAddr, msgCh)
+	defer peer.Close()
 
-	go server.ListenFor()
+	timeout := 100 * time.Millisecond
+	delta := 5 * time.Millisecond
+	largeByteRapr := 10 << 20
 
-	time.Sleep(1 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 
-	go func() { //TODO: REFACTOR WHEN CLASS CLIENT IS AVAILABLE
-		conn, err := net.Dial("tcp", listenerAddr)
+	largeMsg := make([]byte, largeByteRapr)
 
-		assert.Nil(t, err, "connection with "+listenerAddr+" should succeed")
+	start := time.Now()
+	err = peer.Send(ctx, largeMsg)
+	elapsed := time.Since(start)
 
-		defer conn.Close()
+	assert.NotNil(t, err, "Exprected error in peer message send")
 
-		err = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	assert.Condition(
+		t,
+		func() bool { return errors.Is(err, context.DeadlineExceeded) || isTimeoutError(err) },
+		"expected context deadline exceeded or timeout error, got: "+err.Error(),
+	)
 
-		if err != nil {
-			fmt.Printf("write deadline met: %v\n", err)
-			panic(err)
-		}
+	assert.Condition(
+		t,
+		func() bool { return elapsed < (timeout * delta) },
+		"Send took too long to timeout: "+elapsed.String(),
+	)
 
-		byteMsg := []byte(msgStr)
-		n, err := conn.Write(byteMsg)
+}
 
-		assert.Nil(t, err, "bytestrem ("+msgStr+") should have been written with success")
-		assert.Equal(t, len(byteMsg), n, "number of bytes written should match the length of msgStr")
-
-	}()
-
-	for msg := range msgCh {
-		assert.Equal(t, string(msg), msgStr, "received bytestream string should be "+msgStr)
-		break
-	}
-
+func isTimeoutError(err error) bool {
+	netErr, ok := err.(net.Error)
+	return ok && netErr.Timeout()
 }
