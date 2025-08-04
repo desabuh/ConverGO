@@ -52,8 +52,8 @@ type TCPServer struct {
 	listener net.Listener
 	Address  string
 	shutdown Flag
-
-	msgCh chan<- []byte
+	msgCh    chan<- []byte
+	peers    map[net.Addr]Peer
 }
 
 func NewTCPServer(address string) *TCPServer {
@@ -62,6 +62,7 @@ func NewTCPServer(address string) *TCPServer {
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
+		peers: make(map[net.Addr]Peer),
 		msgCh: make(chan<- []byte),
 	}
 }
@@ -99,6 +100,13 @@ func (t *TCPServer) ListenFor() error {
 				fmt.Println("connection accept error:", err)
 				continue
 			}
+
+			peer, err := NewTCPPeer(conn)
+			if err != nil {
+				fmt.Printf("Cannot create a new TCP peer: %s", err)
+			}
+
+			t.peers[conn.RemoteAddr()] = peer
 
 			go t.handleConnection(conn, 1024)
 		}
