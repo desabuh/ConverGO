@@ -3,42 +3,12 @@ package p2p
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
-
-func TestSynchronousPeer(t *testing.T) {
-	remoteNode, peerConn := net.Pipe()
-
-	peer, err := NewTCPPeer(peerConn)
-
-	assert.Nil(t, err, "connection should be tcp based")
-
-	defer peer.Close()
-
-	ctx := context.Background()
-
-	msg := []byte("Test message")
-
-	go func() {
-		err = peer.Send(ctx, msg)
-
-		assert.Nil(t, err, "error in peer send message")
-
-		peer.Close()
-	}()
-
-	data, err := io.ReadAll(remoteNode)
-
-	assert.Nil(t, err, "error while reading data from connection")
-
-	assert.Equal(t, data, msg, "byte read should match with byte written by remote peer")
-
-}
 
 func TestSendContextDeadlineTimeout(t *testing.T) {
 	remoteNode, peerConn := net.Pipe()
@@ -82,4 +52,41 @@ func TestSendContextDeadlineTimeout(t *testing.T) {
 func isTimeoutError(err error) bool {
 	netErr, ok := err.(net.Error)
 	return ok && netErr.Timeout()
+}
+
+func TestSendReceivePeer(t *testing.T) {
+	peerConn1, peerConn2 := net.Pipe()
+
+	peer1, err := NewTCPPeer(peerConn1)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	peer2, err := NewTCPPeer(peerConn2)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	defer peer1.Close()
+	defer peer2.Close()
+
+	ctx := context.Background()
+
+	msg := []byte("Test message")
+
+	msgCh, msgErr := peer1.Receive(ctx)
+
+	go func() {
+		select {
+		case msgRec, ok := <-msgCh:
+			if !ok {
+				t.Errorf("error with message channel")
+			}
+			assert.Equal(t, msg, msgRec, "message sent should match with message received")
+
+		case <-msgErr:
+			t.Errorf("error from channel while trying to receive messages")
+		}
+	}()
+
+	err = peer2.Send(ctx, msg)
+
+	assert.Nil(t, err, "Error in sending message")
+
 }
