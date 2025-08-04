@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -73,6 +74,7 @@ func NewTCPServerWithMsgCh(address string, msgCh chan<- []byte) *TCPServer {
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
+		peers: make(map[net.Addr]Peer),
 		msgCh: msgCh,
 	}
 }
@@ -106,9 +108,13 @@ func (t *TCPServer) ListenFor() error {
 				fmt.Printf("Cannot create a new TCP peer: %s", err)
 			}
 
-			t.peers[conn.RemoteAddr()] = peer
+			t.peers[conn.LocalAddr()] = peer
 
-			go t.handleConnection(conn, 1024)
+			ctx, cancel := context.WithCancel(context.Background())
+			go func(p Peer) {
+				defer cancel()
+				t.handlePeer(ctx, peer)
+			}(peer)
 		}
 	}()
 
@@ -118,20 +124,31 @@ func (t *TCPServer) ListenFor() error {
 
 }
 
-func (t *TCPServer) handleConnection(conn net.Conn, buffSize int) {
-	defer conn.Close()
+func (t *TCPServer) handlePeer(ctx context.Context, p Peer) {
+	peerMsgCh, peerErrCh := p.Receive(ctx)
 
 	for {
-		buf := make([]byte, buffSize)
-		n, err := conn.Read(buf)
-		if err != nil {
-			fmt.Println("byte error read: ", err)
-			if t.shutdown.IsClosed() {
-				return
-			}
+
+		if t.shutdown.IsClosed() {
+			return
 		}
 
-		t.msgCh <- buf[:n]
+		select {
+		case msg, ok := <-peerMsgCh:
+			if !ok {
+				return
+			}
+			t.msgCh <- msg
+
+		case err, ok := <-peerErrCh:
+			if !ok {
+				return
+			}
+			fmt.Printf("peer %v error: %v\n", p, err)
+
+		case <-ctx.Done():
+			return
+		}
 	}
 
 }
