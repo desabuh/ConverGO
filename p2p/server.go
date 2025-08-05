@@ -54,7 +54,9 @@ type TCPServer struct {
 	Address  string
 	shutdown Flag
 	msgCh    chan<- []byte
-	peers    map[net.Addr]Peer
+
+	mu    sync.Mutex
+	peers map[net.Addr]Peer
 }
 
 func NewTCPServer(address string) *TCPServer {
@@ -108,7 +110,7 @@ func (t *TCPServer) ListenFor() error {
 				fmt.Printf("Cannot create a new TCP peer: %s", err)
 			}
 
-			t.peers[conn.LocalAddr()] = peer
+			t.addPeer(peer.RemoteAddress, peer)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			go func(p Peer) {
@@ -125,6 +127,9 @@ func (t *TCPServer) ListenFor() error {
 }
 
 func (t *TCPServer) handlePeer(ctx context.Context, p Peer) {
+	defer t.removePeer(p.(*TCPPeer).RemoteAddress)
+	defer p.Close()
+
 	peerMsgCh, peerErrCh := p.Receive(ctx)
 
 	for {
@@ -151,6 +156,18 @@ func (t *TCPServer) handlePeer(ctx context.Context, p Peer) {
 		}
 	}
 
+}
+
+func (t *TCPServer) addPeer(addr net.Addr, p Peer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.peers[addr] = p
+}
+
+func (t *TCPServer) removePeer(addr net.Addr) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.peers, addr)
 }
 
 func (t *TCPServer) Shutdown() error {
