@@ -90,3 +90,40 @@ func TestSendReceivePeer(t *testing.T) {
 	assert.Nil(t, err, "Error in sending message")
 
 }
+
+func TestReceiveInterrupted(t *testing.T) {
+	peerConn1, peerConn2 := net.Pipe()
+
+	peer1, err := NewTCPPeer(peerConn1)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	peer2, err := NewTCPPeer(peerConn2)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	defer peer1.Close()
+	defer peer2.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	msgCh, msgErr := peer1.Receive(ctx)
+
+	terminationSignal := make(chan struct{})
+
+	go func() {
+		select {
+		case _, ok := <-msgCh:
+			assert.False(t, ok, "No message was sent")
+
+		case err := <-msgErr:
+			assert.Equal(t, context.Canceled, err, "expected context.Canceled error")
+			close(terminationSignal)
+		}
+	}()
+
+	time.Sleep(500 * time.Millisecond)
+
+	cancel()
+
+	<-terminationSignal
+
+}
