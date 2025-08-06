@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -85,4 +86,63 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 		break
 	}
 
+}
+
+func TestEncodeDecodeJsonMsg(t *testing.T) {
+	listenerAddr := ":9094"
+
+	msg := Message{
+		PayLoad:   "Test Message",
+		Protocoll: "default",
+		Sender: UserData{
+			Id:       uuid.New(),
+			Username: "TestUser",
+		},
+	}
+
+	encoder := JsonEncoder{}
+	decoder := JsonDecoder{}
+
+	msgCh := make(chan []byte)
+
+	var server = NewTCPServerWithMsgCh(listenerAddr, msgCh)
+
+	go server.ListenFor()
+
+	time.Sleep(1 * time.Second)
+
+	go func() { //TODO: REFACTOR WHEN CLASS CLIENT IS AVAILABLE
+		conn, err := net.Dial("tcp", listenerAddr)
+
+		assert.Nil(t, err, "connection with "+listenerAddr+" should succeed")
+
+		defer conn.Close()
+
+		err = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+		if err != nil {
+			fmt.Printf("write deadline met: %v\n", err)
+			panic(err)
+		}
+
+		byteMsg, err := encoder.Encode(msg)
+
+		assert.Nil(t, err, "Message should have been encoded with success")
+
+		n, err := conn.Write(byteMsg)
+
+		assert.Nil(t, err, "bytestrem should have been written with success")
+		assert.Equal(t, len(byteMsg), n, "number of bytes written should match the length of msgStr")
+
+	}()
+
+	for msgFromByte := range msgCh {
+
+		msgFrom, err := decoder.Decode(msgFromByte)
+
+		assert.Nil(t, err, "Message should have been decoded with success")
+
+		assert.Equal(t, msg, msgFrom, "Message received should match message sent")
+		break
+	}
 }
