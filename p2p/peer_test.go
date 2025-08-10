@@ -120,8 +120,6 @@ func TestReceiveInterrupted(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(500 * time.Millisecond)
-
 	cancel()
 
 	<-terminationSignal
