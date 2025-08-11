@@ -9,9 +9,12 @@ import (
 	"sync"
 )
 
+// Server is a generic Transport component that can only receive data (Server), shutdown and provides
+// a general receive only channel that define an Event
 type Server interface {
-	ListenFor(address string) error
+	ListenFor() error
 	Shutdown() error
+	GetEventCh() <-chan Event
 }
 
 type Flag interface {
@@ -53,31 +56,35 @@ type TCPServer struct {
 	listener net.Listener
 	Address  string
 	shutdown Flag
-	msgCh    chan<- []byte
+	msgCh    chan Event
+
+	decoder Decoder
 
 	mu    sync.Mutex
 	peers map[net.Addr]Peer
 }
 
-func NewTCPServer(address string) *TCPServer {
+func NewTCPServer(address string, decoder Decoder) *TCPServer {
 	return &TCPServer{
 		Address: address,
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
-		peers: make(map[net.Addr]Peer),
-		msgCh: make(chan<- []byte),
+		decoder: decoder,
+		peers:   make(map[net.Addr]Peer),
+		msgCh:   make(chan Event),
 	}
 }
 
-func NewTCPServerWithMsgCh(address string, msgCh chan<- []byte) *TCPServer {
+func NewTCPServerWithEventCh(address string, decoder Decoder, msgCh chan Event) *TCPServer {
 	return &TCPServer{
 		Address: address,
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
-		peers: make(map[net.Addr]Peer),
-		msgCh: msgCh,
+		decoder: decoder,
+		peers:   make(map[net.Addr]Peer),
+		msgCh:   msgCh,
 	}
 }
 
@@ -143,13 +150,17 @@ func (t *TCPServer) handlePeer(ctx context.Context, p Peer) {
 			if !ok {
 				return
 			}
-			t.msgCh <- msg
+			data, err := t.decoder.Decode(msg)
+
+			if err == nil {
+				t.msgCh <- Event{Source: &p, Data: data}
+			}
 
 		case err, ok := <-peerErrCh:
+			fmt.Printf("peer %v error: %v\n", p, err)
 			if !ok {
 				return
 			}
-			fmt.Printf("peer %v error: %v\n", p, err)
 
 		case <-ctx.Done():
 			return
@@ -172,4 +183,8 @@ func (t *TCPServer) removePeer(addr net.Addr) {
 
 func (t *TCPServer) Shutdown() error {
 	return t.shutdown.Close()
+}
+
+func (t *TCPServer) GetEventCh() <-chan Event {
+	return t.msgCh
 }

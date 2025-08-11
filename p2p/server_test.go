@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +13,7 @@ func TestTCPServerListen(t *testing.T) {
 
 	listenerAddr := ":9091"
 
-	var server = NewTCPServer(listenerAddr)
+	var server = NewTCPServer(listenerAddr, JsonDecoder{})
 
 	go server.ListenFor()
 
@@ -25,7 +24,7 @@ func TestTCPServerListen(t *testing.T) {
 func TestTCPServerShutdown(t *testing.T) {
 	listenerAddr := ":9092"
 
-	var server = NewTCPServer(listenerAddr)
+	var server = NewTCPServer(listenerAddr, JsonDecoder{})
 
 	terminationChannel := make(chan struct{})
 
@@ -49,11 +48,21 @@ func TestTCPServerShutdown(t *testing.T) {
 func TestTCPReadMsgFromConnection(t *testing.T) {
 
 	listenerAddr := ":9093"
-	msgStr := "Test Message"
 
-	msgCh := make(chan []byte)
+	msgStr := Message{
+		Name: "Ping",
+		Args: map[string]interface{}{
+			"username": "alice",
+			"age":      "30",
+		},
+		Time: 1,
+	}
 
-	var server = NewTCPServerWithMsgCh(listenerAddr, msgCh)
+	encoder := JsonEncoder{}
+
+	eventCh := make(chan Event)
+
+	var server = NewTCPServerWithEventCh(listenerAddr, JsonDecoder{}, eventCh)
 
 	go server.ListenFor()
 
@@ -73,16 +82,22 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 			panic(err)
 		}
 
-		byteMsg := []byte(msgStr)
+		byteMsg, err := encoder.Encode(msgStr)
+
+		assert.Nil(t, err, "Message should have been encoded")
+
 		n, err := conn.Write(byteMsg)
 
-		assert.Nil(t, err, "bytestrem ("+msgStr+") should have been written with success")
+		assert.Nil(t, err, "bytestrem should have been written with success")
 		assert.Equal(t, len(byteMsg), n, "number of bytes written should match the length of msgStr")
 
 	}()
 
-	for msg := range msgCh {
-		assert.Equal(t, string(msg), msgStr, "received bytestream string should be "+msgStr)
+	for event := range eventCh {
+		assert.Equal(t, event.Data, msgStr, "received bytestream string should be match")
+
+		assert.Equal(t, event.Data.Args["username"], "alice", "sender username should match")
+
 		break
 	}
 
@@ -92,20 +107,20 @@ func TestEncodeDecodeJsonMsg(t *testing.T) {
 	listenerAddr := ":9094"
 
 	msg := Message{
-		PayLoad:   "Test Message",
-		Protocoll: "default",
-		Sender: UserData{
-			Id:       uuid.New(),
-			Username: "TestUser",
+		Name: "Ping",
+		Args: map[string]interface{}{
+			"username": "alice",
+			"age":      "30",
 		},
+		Time: 1,
 	}
 
 	encoder := JsonEncoder{}
 	decoder := JsonDecoder{}
 
-	msgCh := make(chan []byte)
+	eventCh := make(chan Event)
 
-	var server = NewTCPServerWithMsgCh(listenerAddr, msgCh)
+	var server = NewTCPServerWithEventCh(listenerAddr, decoder, eventCh)
 
 	go server.ListenFor()
 
@@ -136,13 +151,9 @@ func TestEncodeDecodeJsonMsg(t *testing.T) {
 
 	}()
 
-	for msgFromByte := range msgCh {
+	for event := range eventCh {
 
-		msgFrom, err := decoder.Decode(msgFromByte)
-
-		assert.Nil(t, err, "Message should have been decoded with success")
-
-		assert.Equal(t, msg, msgFrom, "Message received should match message sent")
+		assert.Equal(t, msg, event.Data, "Message received should match message sent")
 		break
 	}
 }

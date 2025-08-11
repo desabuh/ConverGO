@@ -7,9 +7,9 @@ import (
 )
 
 type Message struct {
-	PayLoad   string   `json:"Payload"`
-	Protocoll string   `json:"Prot"`
-	Sender    UserData `json:"UserData"`
+	Name string         `json:"Name"`
+	Args map[string]any `json:"Args"`
+	Time int64          `json:"Time"`
 }
 
 type UserData struct {
@@ -27,13 +27,13 @@ type Decoder interface {
 
 type JsonEncoder struct{}
 
-func (e *JsonEncoder) Encode(msg Message) ([]byte, error) {
+func (e JsonEncoder) Encode(msg Message) ([]byte, error) {
 	return json.Marshal(msg)
 }
 
 type JsonDecoder struct{}
 
-func (d *JsonDecoder) Decode(data []byte) (Message, error) {
+func (d JsonDecoder) Decode(data []byte) (Message, error) {
 	var msg Message
 	err := json.Unmarshal(data, &msg)
 	return msg, err
