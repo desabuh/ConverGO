@@ -7,22 +7,27 @@ import (
 )
 
 type Message struct {
-	Name string         `json:"Name"`
-	Args map[string]any `json:"Args"`
-	Time int64          `json:"Time"`
+	Name string
+	Args map[string]any
+	Time int64
 }
 
 type UserData struct {
-	Id       uuid.UUID `json:"Id"`
-	Username string    `json:"Name"`
+	Id       uuid.UUID
+	Username string
 }
 
-type Encoder interface {
-	Encode(msg Message) ([]byte, error)
+type Encoder[I any] interface {
+	Encode(msg I) ([]byte, error)
 }
 
-type Decoder interface {
-	Decode(data []byte) (Message, error)
+type Decoder[O any] interface {
+	Decode(data []byte) (O, error)
+}
+
+type EncoderDecoder[ED any] interface {
+	Encoder[ED]
+	Decoder[ED]
 }
 
 type JsonEncoder struct{}

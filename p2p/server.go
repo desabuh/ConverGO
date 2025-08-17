@@ -58,13 +58,13 @@ type TCPServer struct {
 	shutdown Flag
 	msgCh    chan Event
 
-	decoder Decoder
+	decoder Decoder[Message]
 
 	mu    sync.Mutex
 	peers map[net.Addr]Peer
 }
 
-func NewTCPServer(address string, decoder Decoder) *TCPServer {
+func NewTCPServer(address string, decoder Decoder[Message]) *TCPServer {
 	return &TCPServer{
 		Address: address,
 		shutdown: &ShutDownFlag{
@@ -76,7 +76,7 @@ func NewTCPServer(address string, decoder Decoder) *TCPServer {
 	}
 }
 
-func NewTCPServerWithEventCh(address string, decoder Decoder, msgCh chan Event) *TCPServer {
+func NewTCPServerWithEventCh(address string, decoder Decoder[Message], msgCh chan Event) *TCPServer {
 	return &TCPServer{
 		Address: address,
 		shutdown: &ShutDownFlag{
