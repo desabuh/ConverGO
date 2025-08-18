@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -25,7 +26,9 @@ const (
 )
 
 type TCPPeer struct {
+	mu sync.Mutex
 	net.Conn
+
 	RemoteAddress net.Addr
 }
 
@@ -35,6 +38,7 @@ func NewTCPPeer(conn net.Conn) (*TCPPeer, error) {
 	// }
 
 	return &TCPPeer{
+
 		Conn:          conn,
 		RemoteAddress: conn.RemoteAddr(),
 	}, nil
@@ -42,6 +46,9 @@ func NewTCPPeer(conn net.Conn) (*TCPPeer, error) {
 }
 
 func (t *TCPPeer) Send(ctx context.Context, bytes []byte) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	var deadline time.Time
 
 	if ctxDeadline, ok := ctx.Deadline(); ok {

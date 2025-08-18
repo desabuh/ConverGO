@@ -2,10 +2,47 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 )
+
+type Flag interface {
+	io.Closer
+	WaitTermination()
+	IsClosed() bool
+}
+
+type ShutDownFlag struct {
+	shutdownCh chan (struct{})
+
+	mu         sync.RWMutex
+	isShutDown bool
+}
+
+func (s *ShutDownFlag) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.IsClosed() {
+		return errors.New("flag was already shut down")
+	}
+
+	s.isShutDown = true
+	close(s.shutdownCh)
+
+	return nil
+}
+
+func (s *ShutDownFlag) WaitTermination() {
+	<-s.shutdownCh
+}
+
+func (s *ShutDownFlag) IsClosed() bool {
+	return s.isShutDown
+}
 
 // Transport defines an interface for a communication mechanism that can send and receive data
 // between different targets. It is generic over the data type D and the target type T.
@@ -31,40 +68,40 @@ type Transport[D any, T comparable] interface {
 	SetEncoderDecoder(encDec EncoderDecoder[D])
 }
 
-type TCPEventLayer struct {
+type TCPLayer[D any] struct {
 	listener net.Listener
 	Address  string
 	shutdown Flag
-	msgCh    chan Event
+	msgCh    chan D
 
-	endDec EncoderDecoder[Event]
+	endDec EncoderDecoder[D]
 
 	mu    sync.Mutex
 	peers map[net.Addr]Peer
 }
 
-func NewTCPEventTransport() *TCPEventLayer {
-	return &TCPEventLayer{
+func NewTCPTransport[D any]() *TCPLayer[D] {
+	return &TCPLayer[D]{
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
 		peers: make(map[net.Addr]Peer),
-		msgCh: make(chan Event),
+		msgCh: make(chan D),
 	}
 }
 
-func (t *TCPEventLayer) SetEncoderDecoder(encDec EncoderDecoder[Event]) {
+func (t *TCPLayer[D]) SetEncoderDecoder(encDec EncoderDecoder[D]) {
 	t.endDec = encDec
 }
 
-func (t *TCPEventLayer) Send(ctx context.Context, event Event, target net.Addr) error {
-	byteMsg, err := t.endDec.Encode(event)
+func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
+	byteMsg, err := t.endDec.Encode(data)
 
 	if err != nil {
 		return err
 	}
 
-	if t.isPeerPresent(target) {
+	if !t.isPeerPresent(target) {
 		return fmt.Errorf("target peer %v already exists", target)
 	}
 
@@ -79,9 +116,12 @@ func (t *TCPEventLayer) Send(ctx context.Context, event Event, target net.Addr) 
 	return nil
 }
 
-func (t *TCPEventLayer) ListenFor(id net.Addr) error {
+func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 	var err error
-	t.listener, err = net.Listen("tcp", id.String())
+
+	t.Address = id.String()
+
+	t.listener, err = net.Listen("tcp", t.Address)
 
 	if err != nil {
 		return fmt.Errorf("listening error: %s", err)
@@ -124,7 +164,7 @@ func (t *TCPEventLayer) ListenFor(id net.Addr) error {
 
 }
 
-func (t *TCPEventLayer) handlePeer(ctx context.Context, p Peer) {
+func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 	defer t.removePeer(p.(*TCPPeer).RemoteAddress)
 	defer p.Close()
 
@@ -160,7 +200,7 @@ func (t *TCPEventLayer) handlePeer(ctx context.Context, p Peer) {
 
 }
 
-func (t *TCPEventLayer) connectTo(address string) (Peer, error) {
+func (t *TCPLayer[D]) connectTo(address string) (Peer, error) {
 	conn, err := net.Dial("tcp", address)
 
 	if err != nil {
@@ -176,7 +216,7 @@ func (t *TCPEventLayer) connectTo(address string) (Peer, error) {
 	return peer, nil
 }
 
-func (t *TCPEventLayer) Add(target net.Addr) error {
+func (t *TCPLayer[D]) Add(target net.Addr) error {
 	if t.isPeerPresent(target) {
 		return fmt.Errorf("target peer %v already exists", target)
 	}
@@ -192,7 +232,7 @@ func (t *TCPEventLayer) Add(target net.Addr) error {
 	return nil
 }
 
-func (t *TCPEventLayer) Remove(target net.Addr) error {
+func (t *TCPLayer[D]) Remove(target net.Addr) error {
 
 	if !t.isPeerPresent(target) {
 		return fmt.Errorf("target peer %v does not exist", target)
@@ -202,42 +242,27 @@ func (t *TCPEventLayer) Remove(target net.Addr) error {
 	return nil
 }
 
-func (t *TCPEventLayer) GetReceiveCh() <-chan Event {
+func (t *TCPLayer[D]) GetReceiveCh() <-chan D {
 	return t.msgCh
 }
 
-func (t *TCPEventLayer) Shutdown() error {
+func (t *TCPLayer[D]) Shutdown() error {
 	return t.shutdown.Close()
 }
 
-func (t *TCPEventLayer) isPeerPresent(target net.Addr) bool {
+func (t *TCPLayer[D]) isPeerPresent(target net.Addr) bool {
 	_, ok := t.peers[target]
 	return ok
 }
 
-func (t *TCPEventLayer) addPeer(addr net.Addr, p Peer) {
+func (t *TCPLayer[D]) addPeer(addr net.Addr, p Peer) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.peers[addr] = p
 }
 
-func (t *TCPEventLayer) removePeer(addr net.Addr) {
+func (t *TCPLayer[D]) removePeer(addr net.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.peers, addr)
-}
-
-func main() {
-	var t Transport[Event, net.Addr] = NewTCPEventTransport()
-	addr := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 8080,
-	}
-	err := t.ListenFor(addr)
-	if err != nil {
-		fmt.Printf("Error listening on address %v: %v\n", addr, err)
-		return
-	}
-
-	fmt.Print(t)
 }

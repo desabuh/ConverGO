@@ -30,16 +30,26 @@ type EncoderDecoder[ED any] interface {
 	Decoder[ED]
 }
 
-type JsonEncoder struct{}
-
-func (e JsonEncoder) Encode(msg Message) ([]byte, error) {
-	return json.Marshal(msg)
+func NewMatchingEncDec[T any](encoder Encoder[T], decoder Decoder[T]) EncoderDecoder[T] {
+	return struct {
+		Encoder[T]
+		Decoder[T]
+	}{
+		Encoder: encoder,
+		Decoder: decoder,
+	}
 }
 
-type JsonDecoder struct{}
+type JsonEncoder[T any] struct{}
 
-func (d JsonDecoder) Decode(data []byte) (Message, error) {
-	var msg Message
+func (e JsonEncoder[T]) Encode(data T) ([]byte, error) {
+	return json.Marshal(data)
+}
+
+type JsonDecoder[T any] struct{}
+
+func (d JsonDecoder[T]) Decode(data []byte) (T, error) {
+	var msg T
 	err := json.Unmarshal(data, &msg)
 	return msg, err
 }
