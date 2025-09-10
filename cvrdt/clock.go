@@ -21,7 +21,7 @@ func (l *LamportClock) Update(received int) {
 	if l.counter < MaxValue {
 		l.counter = max(received, l.counter) + 1
 		if l.counter > MaxValue {
-			l.counter = MaxValue
+			panic("clock value is out of bound")
 		}
 	}
 }
