@@ -3,6 +3,7 @@ package cvrdt
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -79,3 +80,72 @@ func TestLocalInsertDelete(t *testing.T) {
 	assert.Equal(t, string(site.GetCurrentData()), ORIGINAL_STATE)
 
 }
+
+func TestConcurrentInsert(t *testing.T) {
+	const SITE_ID_1 = "1"
+	const SITE_ID_2 = "2"
+	const ELEMENT_INSERT = "A"
+	const INITIAL_EXPECTED_STATE = SPECIAL_START_CHAR + SPECIAL_END_CHAR
+	const FINAL_EXPECTED_STATE = SPECIAL_START_CHAR + ELEMENT_INSERT + SPECIAL_END_CHAR
+
+	site1 := NewSite(SITE_ID_1)
+	site2 := NewSite(SITE_ID_2)
+
+	go site1.ReceptionLoop(100 * time.Millisecond)
+	go site2.ReceptionLoop(100 * time.Millisecond)
+
+	assert.Equal(t, string(site1.GetCurrentData()), INITIAL_EXPECTED_STATE, "Site1's initial state should match the expected state")
+
+	op, err := site1.GenerateIns(0, ELEMENT_INSERT)
+
+	assert.Nil(t, err, "Local Insertion at site1 should be successful")
+	assert.True(t, op.opType == Insertion, "Operation should be of type Insertion")
+
+	assert.Equal(t, string(site1.GetCurrentData()), FINAL_EXPECTED_STATE, "Site1's state should match the expected state")
+
+	assert.Equal(t, string(site2.GetCurrentData()), INITIAL_EXPECTED_STATE, "Site2's initial state should match the expected state")
+
+	site2.QueueOp(op)
+
+	time.Sleep(1 * time.Second)
+
+	assert.Equal(t, string(site2.GetCurrentData()), FINAL_EXPECTED_STATE, "Site2's initial state should match the expected state")
+
+}
+
+// func TestConcurrentInsertDelete(t *testing.T) {
+// 	const SITE_ID_1 = "1"
+// 	const SITE_ID_2 = "2"
+// 	const ELEMENT_INSERT_1 = "A"
+// 	const ELEMENT_INSERT_2 = "B"
+// 	//const INSERT_AT_START = 0
+// 	const INSERT_AT_END = 1
+
+// 	const EXPECTED_STATE = SPECIAL_START_CHAR + ELEMENT_INSERT_1 + ELEMENT_INSERT_2 + SPECIAL_END_CHAR
+
+// 	site1 := NewSite(SITE_ID_1)
+// 	site2 := NewSite(SITE_ID_2)
+
+// 	// Site 1 inserts ELEMENT_INSERT_1 at the start
+// 	//op1, err1 := site1.GenerateIns(INSERT_AT_START, ELEMENT_INSERT_1)
+// 	//assert.Nil(t, err1, "Insertion at site1 should be successful")
+
+// 	// Site 2 inserts ELEMENT_INSERT_2 at the end
+// 	op2, err2 := site2.GenerateIns(INSERT_AT_END, ELEMENT_INSERT_2)
+// 	assert.Nil(t, err2, "Insertion at site2 should be successful")
+
+// 	fmt.Printf("op2: %v\n", op2)
+
+// 	//go site2.ReceptionLoop(100 * time.Millisecond)
+// 	//site2.QueueOp(op1)
+
+// 	// Apply operations from site2 to site1
+// 	go site1.ReceptionLoop(100 * time.Millisecond)
+// 	site1.QueueOp(op2)
+
+// 	time.Sleep(1 * time.Second)
+
+// 	// Verify that both sites converge to the same state
+// 	assert.Equal(t, string(site1.GetCurrentData()), EXPECTED_STATE, "Site1's state should match the expected state")
+// 	//assert.Equal(t, string(site2.GetCurrentData()), EXPECTED_STATE, "Site2's state should match the expected state")
+// }

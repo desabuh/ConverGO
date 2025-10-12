@@ -83,9 +83,9 @@ func (s *Site) GenerateDel(pos int) (WootOperation, error) {
 func (s *Site) IsExecutable(op WootOperation) bool {
 	targetWChar := op.character
 
-	return targetWChar.IsSpecialWChar() ||
-		(op.opType == Deletion && s.characters.Contains(targetWChar.id)) ||
-		(s.characters.Contains(targetWChar.previousId) && s.characters.Contains(targetWChar.nextId))
+	return (op.opType == Deletion && s.characters.Contains(targetWChar.id)) ||
+		(s.characters.Contains(targetWChar.previousId) || s.characters.GetById(targetWChar.previousId).IsSpecialWChar()) &&
+			(s.characters.Contains(targetWChar.nextId) || s.characters.GetById(targetWChar.nextId).IsSpecialWChar())
 
 }
 
@@ -107,7 +107,7 @@ func (s *Site) ReceptionLoop(retryTime time.Duration) {
 				s.IntegrateIns(&op.character, prev, next)
 			}
 		} else {
-			//if char does not still exist (delete) or prev-next do not still exist (insert) wait 0.1 sec and try retransmitt on channel
+			//if char does not still exist (delete) or prev-next do not still exist (insert) wait retryTime and try retransmitt on channel
 			go func(o WootOperation) {
 				time.Sleep(retryTime)
 				s.pendingOpsCh <- o
