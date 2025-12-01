@@ -2,31 +2,84 @@ package cvrdt
 
 import (
 	"fmt"
-	"sync"
-	"time"
+
+	"github.com/desabuh/convergo/utils"
 )
 
 type Site struct {
-	siteId       string
-	clock        LamportClock
-	pendingOpsCh chan WootOperation
+	siteId string
+	clock  LamportClock
 
-	mu         sync.Mutex
 	characters WString
+
+	pendingOps []WootOperation
 }
 
 func NewSite(siteId string) *Site {
 	return &Site{
-		siteId:       siteId,
-		clock:        LamportClock{},
-		characters:   *NewWString(siteId),
-		pendingOpsCh: make(chan WootOperation, 100),
+		siteId:     siteId,
+		clock:      LamportClock{},
+		characters: *NewWString(siteId),
+
+		pendingOps: make([]WootOperation, 0),
 	}
 }
 
+func (s *Site) ComputeOp(operation CRDTOperation) (WootOperation, error) {
+
+	switch op := operation.(type) {
+	case WootOperation:
+		err := s.computeExtOp(op)
+
+		if err == nil {
+			s.tryComputePendings()
+		}
+
+		return op, err
+	case LocalOperation:
+		if op.opType == Insertion {
+			return s.GenerateIns(op.pos, op.content)
+		} else {
+			return s.GenerateDel(op.pos)
+		}
+	default:
+		return WootOperation{}, fmt.Errorf("operation provided type was not compatible")
+	}
+
+}
+
+func (s *Site) tryComputePendings() {
+	for i := 0; i < len(s.pendingOps); i++ {
+		oldOp := s.pendingOps[i]
+		err := s.computeExtOp(oldOp)
+
+		if err == nil {
+			s.pendingOps = append(s.pendingOps[:i], s.pendingOps[i+1:]...)
+			s.tryComputePendings()
+			break
+		}
+	}
+}
+
+func (s *Site) computeExtOp(op WootOperation) error {
+	if s.IsExecutable(op) {
+		if op.opType == Deletion {
+			charToRemove := s.characters.GetById(op.character.id)
+			s.IntegrateDel(charToRemove)
+		} else {
+			prev := s.characters.GetById(op.character.previousId)
+			next := s.characters.GetById(op.character.nextId)
+
+			s.IntegrateIns(&op.character, prev, next)
+		}
+		return nil
+	}
+
+	s.pendingOps = append(s.pendingOps, op)
+	return &utils.ErrPendingState{Msg: "Operation with id " + op.ID() + " cannot currently be executed"}
+}
+
 func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	newValue := s.clock.Increment()
 
@@ -63,8 +116,6 @@ func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 }
 
 func (s *Site) GenerateDel(pos int) (WootOperation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	wchar, err := s.characters.GetIthVisibleValue(pos, true)
 
@@ -89,38 +140,11 @@ func (s *Site) IsExecutable(op WootOperation) bool {
 
 }
 
-func (s *Site) QueueOp(op WootOperation) {
-	s.pendingOpsCh <- op
-}
-
-func (s *Site) ReceptionLoop(retryTime time.Duration) {
-	for op := range s.pendingOpsCh {
-		s.mu.Lock()
-		if s.IsExecutable(op) {
-			if op.opType == Deletion {
-				charToRemove := s.characters.GetById(op.character.id)
-				s.IntegrateDel(charToRemove)
-			} else {
-				prev := s.characters.GetById(op.character.previousId)
-				next := s.characters.GetById(op.character.nextId)
-
-				s.IntegrateIns(&op.character, prev, next)
-			}
-		} else {
-			//if char does not still exist (delete) or prev-next do not still exist (insert) wait retryTime and try retransmitt on channel
-			go func(o WootOperation) {
-				time.Sleep(retryTime)
-				s.pendingOpsCh <- o
-			}(op)
-		}
-		s.mu.Unlock()
-	}
-}
-
 func (s *Site) IntegrateIns(wchar *WCharacter, wprev *WCharacter, wnext *WCharacter) {
+
 	subStr := s.characters.SubSeq(*wprev, *wnext) //character between previous and next
 
-	//if no other char are between the prev and next, it'll simply be interted between them
+	//if no other char are between the prev and next, it'll simply be inserted between them
 	if len(subStr) == 0 {
 		nextPos := s.characters.GetPos(wnext.id)
 		s.characters.Insert(wchar, nextPos)
@@ -154,8 +178,5 @@ func (s *Site) IntegrateDel(wchar *WCharacter) {
 }
 
 func (s *Site) GetCurrentData() []byte {
-	for _, v := range s.characters.GetVisibleContent() {
-		fmt.Printf("v: %s\n", string(v))
-	}
 	return s.characters.GetVisibleContent()
 }
