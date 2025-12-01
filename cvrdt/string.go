@@ -99,7 +99,7 @@ func (w *WString) GetIthVisibleValue(occ int, excludeLimiters bool) (*WCharacter
 func (w WString) GetVisibleContent() []byte {
 	var visibleContent []byte
 	for _, char := range w.sequence {
-		if char.visible {
+		if char.visible && !char.IsSpecialWChar() {
 			visibleContent = append(visibleContent, []byte(char.alphaValue)...)
 		}
 	}
