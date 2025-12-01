@@ -57,6 +57,9 @@ func (w WCharacter) Less(other WCharacter) bool {
 	return false
 }
 
-func (w WCharacter) IsSpecialWChar() bool {
+func (w *WCharacter) IsSpecialWChar() bool {
+	if w == nil {
+		return false
+	}
 	return w.alphaValue == SPECIAL_START_CHAR || w.alphaValue == SPECIAL_END_CHAR
 }
