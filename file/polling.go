@@ -12,7 +12,7 @@ import (
 // A poller that countinuosly dump every interval some data R from a provider into a writer
 // Note: the safe concurrent access to the provider should be garanteed by the provider itself
 type StatePollingDumper[R any] struct {
-	provider   interface{ GetStateRappr() R }
+	provider   cvrdt.SnapshotView[R]
 	writer     io.Writer
 	encode     func(R) ([]byte, error)
 	onShutDown func() error
@@ -21,13 +21,13 @@ type StatePollingDumper[R any] struct {
 	wg         sync.WaitGroup
 }
 
-func GetCrdtFilePollingDumper[S cvrdt.Mergeable[S]](crdt cvrdt.Cvrdt[S, []byte], writer *os.File, interval time.Duration) StatePollingDumper[[]byte] {
+func GetCrdtFilePollingDumper[S cvrdt.Mergeable[S]](crdt cvrdt.Cvrdt[S, string], writer *os.File, interval time.Duration) StatePollingDumper[string] {
 
-	return StatePollingDumper[[]byte]{
+	return StatePollingDumper[string]{
 		provider: crdt,
 		writer:   writer,
-		encode: func(data []byte) ([]byte, error) { //placeholder will need a change cache
-			return data, nil
+		encode: func(data string) ([]byte, error) { //placeholder will need a change cache
+			return []byte(data), nil
 		},
 		onShutDown: func() error { return writer.Close() }, //closure to manage file shutdown
 		interval:   interval,
@@ -44,7 +44,13 @@ func (sd *StatePollingDumper[R]) Run() {
 	for {
 		select {
 		case <-ticker.C:
-			rappr := sd.provider.GetStateRappr()
+			var isStateUpToDate bool
+			var rappr R
+			rappr, isStateUpToDate = sd.provider.Snapshot()
+
+			if isStateUpToDate {
+				continue
+			}
 
 			b, _ := sd.encode(rappr)
 
