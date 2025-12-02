@@ -177,6 +177,6 @@ func (s *Site) IntegrateDel(wchar *WCharacter) {
 	wchar.visible = false
 }
 
-func (s *Site) GetCurrentData() []byte {
+func (s *Site) GetCurrentData() string {
 	return s.characters.GetVisibleContent()
 }

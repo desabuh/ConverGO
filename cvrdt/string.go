@@ -96,11 +96,11 @@ func (w *WString) GetIthVisibleValue(occ int, excludeLimiters bool) (*WCharacter
 	return visibleChars[cappedPos], nil
 }
 
-func (w WString) GetVisibleContent() []byte {
-	var visibleContent []byte
+func (w WString) GetVisibleContent() string {
+	var visibleContent string
 	for _, char := range w.sequence {
 		if char.visible && !char.IsSpecialWChar() {
-			visibleContent = append(visibleContent, []byte(char.alphaValue)...)
+			visibleContent += char.alphaValue
 		}
 	}
 	return visibleContent
