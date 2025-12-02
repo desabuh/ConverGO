@@ -88,5 +88,9 @@ func (w *WootCvrdt) GetState() CvRDTState {
 }
 
 func (w *WootCvrdt) Snapshot() (string, bool) {
-	return w.site.GetCurrentData(), w.isStateUpToDate
+
+	temp := w.isStateUpToDate
+	w.isStateUpToDate = true
+
+	return w.site.GetCurrentData(), temp
 }
