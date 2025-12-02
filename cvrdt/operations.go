@@ -30,6 +30,15 @@ type LocalOperation struct {
 	id string
 }
 
+func CreateNewLocalOp(opType OpType, pos int, content string, id string) LocalOperation {
+	return LocalOperation{
+		opType:  opType,
+		pos:     pos,
+		content: content,
+		id:      id,
+	}
+}
+
 func (o LocalOperation) ID() string {
 	return o.id
 }
