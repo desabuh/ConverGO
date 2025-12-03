@@ -4,21 +4,15 @@ import (
 	"github.com/desabuh/convergo/utils"
 )
 
-// An entity with the ability to merge itself and return a new merged self
-type Mergeable[T any] interface {
-	Merge(state T) T
+// Represents a state-based Convergent Replicated Data Type whose  internal state X supports monotonic merging
+type Cvrdt[X utils.Mergeable[X]] interface {
+	utils.StateStore[X]
 }
 
-// Provide a point-in-time rappresentation of an underlying state, also return true if the internal state was updated from the last snapshot
-type SnapshotView[V any] interface {
-	Snapshot() (V, bool)
-}
-
-// an interface to provide a state based CRDT for a specific data structure X with the capability to merge
-type Cvrdt[X Mergeable[X], R any] interface {
-	UpdateState(data X) error
-	GetState() X
-	SnapshotView[R]
+// A decorator interface to provide a simpler view rappresentation of the complex internal crdt state in the form of an up-to-date snapshot
+type SnapshotCvrdt[X utils.Mergeable[X], R any] interface {
+	Cvrdt[X]
+	utils.SnapshotView[R]
 }
 
 type CvRDTState map[CRDTOperation]struct{}
@@ -40,13 +34,15 @@ func (w CvRDTState) Merge(state CvRDTState) CvRDTState {
 	return w
 }
 
+// A state based CRDT wrapping WOOT operations in a state. It also implement Snapshot[string] to expose a simpler textual rappresentation
+// of a Woot site without the need to manually reconstruct it from all operations
 type WootCvrdt struct {
 	site            Site
 	state           CvRDTState
 	isStateUpToDate bool
 }
 
-func NewWootCvrdt(siteId string) *WootCvrdt {
+func NewWootCvrdtWithView(siteId string) *WootCvrdt {
 
 	return &WootCvrdt{
 		site:            *NewSite(siteId),

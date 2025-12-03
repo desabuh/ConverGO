@@ -16,7 +16,7 @@ func TestConcurrentInsertCRDT(t *testing.T) {
 	const INSERT_1 = "Hi "
 	const INSERT_2 = "User"
 
-	var data Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_1)
+	var data SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_1)
 
 	var localOp LocalOperation = LocalOperation{
 		opType:  Insertion,
@@ -31,7 +31,7 @@ func TestConcurrentInsertCRDT(t *testing.T) {
 
 	assert.Equal(t, INSERT_1, utils.First(data.Snapshot()))
 
-	var data2 Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_2)
+	var data2 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_2)
 
 	var localOp2 LocalOperation = LocalOperation{
 		opType:  Insertion,
@@ -64,7 +64,7 @@ func TestDuplicateInsert(t *testing.T) {
 	const INSERT_AT_START = 0
 	const INSERT = "Test"
 
-	var data Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_1)
+	var data SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_1)
 
 	var localOpInsert LocalOperation = LocalOperation{
 		opType:  Insertion,
@@ -94,8 +94,8 @@ func TestConcurrentInsertDeleteCRDT(t *testing.T) {
 	const FINAL_EXPECTED_STATE_AFTER_INSERT = INSERT_1
 	const FINAL_EXPECTED_STATE_AFTER_DELETE = INITIAL_EXPECTED_STATE
 
-	var data1 Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_1)
-	var data2 Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_2)
+	var data1 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_1)
+	var data2 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_2)
 
 	var localOpInsert LocalOperation = LocalOperation{
 		opType:  Insertion,
@@ -138,7 +138,7 @@ func TestComputeDependandInsertPendings(t *testing.T) {
 	const AFTER_STR = "Second part"
 	const EMPTY = ""
 
-	var data1 Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_1)
+	var data1 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_1)
 
 	var localOpInsert LocalOperation = LocalOperation{
 		opType:  Insertion,
@@ -162,7 +162,7 @@ func TestComputeDependandInsertPendings(t *testing.T) {
 
 	assert.Equal(t, utils.First(data1.Snapshot()), BEFORE_STR+AFTER_STR)
 
-	var data2 Cvrdt[CvRDTState, string] = NewWootCvrdt(SITE_ID_2)
+	var data2 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_2)
 
 	var firstSiteState map[CRDTOperation]struct{} = data1.GetState()
 

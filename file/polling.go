@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/desabuh/convergo/cvrdt"
+	"github.com/desabuh/convergo/utils"
 )
 
 // A poller that countinuosly dump every interval some data R from a provider into a writer
 // Note: the safe concurrent access to the provider should be garanteed by the provider itself
 type StatePollingDumper[R any] struct {
-	provider   cvrdt.SnapshotView[R]
+	provider   utils.SnapshotView[R]
 	writer     io.Writer
 	encode     func(R) ([]byte, error)
 	onShutDown func() error
@@ -21,15 +21,15 @@ type StatePollingDumper[R any] struct {
 	wg         sync.WaitGroup
 }
 
-func GetCrdtFilePollingDumper[S cvrdt.Mergeable[S]](crdt cvrdt.Cvrdt[S, string], writer *os.File, interval time.Duration) StatePollingDumper[string] {
+func GetCrdtFilePollingDumper[S utils.Mergeable[S]](crdt utils.SnapshotView[string], file *os.File, interval time.Duration) StatePollingDumper[string] {
 
 	return StatePollingDumper[string]{
 		provider: crdt,
-		writer:   writer,
+		writer:   file,
 		encode: func(data string) ([]byte, error) { //placeholder will need a change cache
 			return []byte(data), nil
 		},
-		onShutDown: func() error { return writer.Close() }, //closure to manage file shutdown
+		onShutDown: func() error { return file.Close() }, //closure to manage file shutdown
 		interval:   interval,
 		stopCh:     make(chan struct{}),
 	}
