@@ -21,10 +21,10 @@ type StatePollingDumper[R any] struct {
 	wg         sync.WaitGroup
 }
 
-func GetCrdtFilePollingDumper[S utils.Mergeable[S]](crdt utils.SnapshotView[string], file *os.File, interval time.Duration) StatePollingDumper[string] {
+func GetFileStringPollingDumper(provider utils.SnapshotView[string], file *os.File, interval time.Duration) StatePollingDumper[string] {
 
 	return StatePollingDumper[string]{
-		provider: crdt,
+		provider: provider,
 		writer:   file,
 		encode: func(data string) ([]byte, error) { //placeholder will need a change cache
 			return []byte(data), nil
