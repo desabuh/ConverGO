@@ -7,7 +7,12 @@ import (
 	"github.com/desabuh/convergo/utils"
 )
 
-// describe an abstraction over some context metastate M reflected on an open file.
+// a FileContext[M] over an internal state M exposed in the form of a string (e.g. collaborative texting, concurrent logging...)
+type StringFileContext[M any] struct {
+	*FileContext[M, string]
+}
+
+// describe an abstraction over some context metastate M synchronized with an open stream.
 // The exposed state R can o cannot (isStateTracked parameter) be continously observed by polling and dumped into the file
 type FileContext[M any, R any] struct {
 	domain         string
@@ -29,11 +34,12 @@ func GetNewFileContext[M any](domain string, localpath string, metaState utils.O
 			pollingInterval,
 		),
 	}
+
 }
 
 func (fc *FileContext[M, R]) TrackState() {
 	fc.isStateTracked = true
-	fc.poller.Run()
+	go fc.poller.Run()
 }
 
 func (fc *FileContext[M, R]) UntrackState() {
@@ -53,7 +59,7 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 	}
 }
 
-// a readonly versione of the FileContext
+// a readonly version of the FileContext general info and synchronized readonly state
 type FileContextInfo[M any] struct {
 	domainPath    string
 	localPath     string
