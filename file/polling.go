@@ -32,6 +32,7 @@ func GetFileStringPollingDumper(provider utils.SnapshotView[string], file *os.Fi
 		onShutDown: func() error { return file.Close() }, //closure to manage file shutdown
 		interval:   interval,
 		stopCh:     make(chan struct{}),
+		wg:         sync.WaitGroup{},
 	}
 }
 
@@ -40,6 +41,8 @@ func (sd *StatePollingDumper[R]) Run() {
 	ticker := time.NewTicker(sd.interval)
 	defer ticker.Stop()
 	defer sd.onShutDown()
+
+	sd.wg.Add(1)
 
 	for {
 		select {
