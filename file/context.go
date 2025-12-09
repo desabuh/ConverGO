@@ -22,17 +22,19 @@ type FileContext[M any, R any] struct {
 	poller         StatePollingDumper[R]
 }
 
-func GetNewFileContext[M any](domain string, localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *FileContext[M, string] {
-	return &FileContext[M, string]{
-		domain:         domain,
-		localPath:      localpath,
-		metaState:      metaState,
-		isStateTracked: false,
-		poller: GetFileStringPollingDumper(
-			metaState,
-			file,
-			pollingInterval,
-		),
+func GetNewFileContext[M any](domain string, localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *StringFileContext[M] {
+	return &StringFileContext[M]{
+		FileContext: &FileContext[M, string]{
+			domain:         domain,
+			localPath:      localpath,
+			metaState:      metaState,
+			isStateTracked: false,
+			poller: GetFileStringPollingDumper(
+				metaState,
+				file,
+				pollingInterval,
+			),
+		},
 	}
 
 }

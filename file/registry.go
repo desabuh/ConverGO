@@ -2,6 +2,9 @@ package file
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/desabuh/convergo/utils"
 )
 
 type FileRegistry[M any] struct {
@@ -9,11 +12,35 @@ type FileRegistry[M any] struct {
 	fileContexts      map[string]*StringFileContext[M]
 }
 
-func InitNewFileRegistry[M any, R any](domain string) *FileRegistry[M] {
+func CreateNewFileRegistry[M any, R any](domain string) *FileRegistry[M] {
 	return &FileRegistry[M]{
 		localDomainPrefix: domain,
 		fileContexts:      make(map[string]*StringFileContext[M]),
 	}
+}
+
+func (fr *FileRegistry[M]) CreateFileCtx(fileName string, state utils.ObservableState[M, string], pollingInterval time.Duration) error {
+
+	fullPath := fr.localDomainPrefix + fileName
+
+	err := CreateFile(fullPath)
+
+	if err != nil {
+		return err
+	}
+
+	file, err := OpenFile(fullPath, RW_TRUNC_MODE)
+
+	if err != nil {
+		return err
+	}
+
+	newCtx := GetNewFileContext(fr.localDomainPrefix, fileName, state, file, pollingInterval)
+
+	newCtx.TrackState()
+
+	return nil
+
 }
 
 func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) error {
