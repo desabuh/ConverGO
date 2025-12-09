@@ -6,7 +6,7 @@ type Mergeable[T any] interface {
 }
 
 // Provide a StateStore that can be also Observed (with a pull approach) and return a rappresentation R of the state S
-type ObservableState[S any, R any] struct {
+type ObservableState[S any, R any] interface {
 	StateStore[S]
 	SnapshotView[R]
 }
