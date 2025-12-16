@@ -64,7 +64,6 @@ func (sd *StatePollingDumper[R]) Run() {
 			}
 
 			sd.writer.Write(b)
-			sd.writer.Write([]byte("\n"))
 
 		case <-sd.stopCh:
 			return
