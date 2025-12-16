@@ -24,4 +24,5 @@ type StateStore[X any] interface {
 
 type ReadonlyStateStore[X any] interface {
 	GetState() X
+	Clone() StateStore[X]
 }

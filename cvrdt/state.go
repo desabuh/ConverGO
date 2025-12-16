@@ -47,7 +47,7 @@ func NewWootCvrdtWithView(siteId string) *WootCvrdt {
 	return &WootCvrdt{
 		site:            *NewSite(siteId),
 		state:           make(CvRDTState, 0),
-		isStateUpToDate: true,
+		isStateUpToDate: false,
 	}
 }
 
@@ -89,4 +89,19 @@ func (w *WootCvrdt) Snapshot() (string, bool) {
 	w.isStateUpToDate = true
 
 	return w.site.GetCurrentData(), temp
+}
+
+func (w *WootCvrdt) Clone() utils.StateStore[CvRDTState] {
+	clonedState := make(CvRDTState, len(w.state))
+	for op, value := range w.state {
+		clonedState[op] = value
+	}
+
+	clonedSite := *NewSite(w.site.siteId)
+
+	return &WootCvrdt{
+		site:            clonedSite,
+		state:           clonedState,
+		isStateUpToDate: false,
+	}
 }

@@ -54,10 +54,11 @@ func (fc *FileContext[M, R]) UpdateState(internalState M) error {
 }
 
 func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
+
 	return FileContextInfo[M]{
 		domainPath:    fc.domain,
 		localPath:     fc.localPath,
-		readOnlyState: fc.metaState,
+		readOnlyState: fc.metaState.Clone(),
 	}
 }
 
