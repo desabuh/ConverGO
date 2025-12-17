@@ -56,7 +56,7 @@ func (fc *FileContext[M, R]) UpdateState(internalState M) error {
 func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 
 	return FileContextInfo[M]{
-		domainPath:    fc.domain,
+		domain:        fc.domain,
 		localPath:     fc.localPath,
 		readOnlyState: fc.metaState.Clone(),
 	}
@@ -64,7 +64,7 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 
 // a readonly version of the FileContext general info and synchronized readonly state
 type FileContextInfo[M any] struct {
-	domainPath    string
+	domain        string
 	localPath     string
 	readOnlyState utils.ReadonlyStateStore[M]
 }

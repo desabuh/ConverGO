@@ -8,13 +8,15 @@ import (
 )
 
 type FileRegistry[M any] struct {
+	domain            string
 	localDomainPrefix string
 	fileContexts      map[string]*StringFileContext[M]
 }
 
-func CreateNewFileRegistry[M any, R any](domain string) *FileRegistry[M] {
+func CreateNewFileRegistry[M any, R any](domain string, domainLocalPrefix string) *FileRegistry[M] {
 	return &FileRegistry[M]{
-		localDomainPrefix: domain,
+		domain:            domain,
+		localDomainPrefix: domainLocalPrefix,
 		fileContexts:      make(map[string]*StringFileContext[M]),
 	}
 }
@@ -35,7 +37,7 @@ func (fr *FileRegistry[M]) CreateFileCtx(fileName string, state utils.Observable
 		return err
 	}
 
-	newCtx := GetNewFileContext(fr.localDomainPrefix, fileName, state, file, pollingInterval)
+	newCtx := GetNewFileContext(fr.domain, fileName, state, file, pollingInterval)
 
 	newCtx.TrackState()
 

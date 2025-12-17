@@ -23,7 +23,7 @@ func TestNewFileContextOperation(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 
-	fileCtx := GetNewFileContext("domain", "path", cvrdt.NewWootCvrdtWithView(SITE_ID), tmpFile, 100*time.Millisecond)
+	fileCtx := GetNewFileContext("TEST_DOMAIN", "path", cvrdt.NewWootCvrdtWithView(SITE_ID), tmpFile, 100*time.Millisecond)
 
 	fileCtx.TrackState()
 	defer fileCtx.UntrackState()
