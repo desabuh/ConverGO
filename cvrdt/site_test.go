@@ -164,17 +164,12 @@ func TestComputeDependandInsertPendings(t *testing.T) {
 
 	var data2 SnapshotCvrdt[CvRDTState, string] = NewWootCvrdtWithView(SITE_ID_2)
 
-	var firstSiteState map[CRDTOperation]struct{} = data1.GetState()
+	var firstSiteState CvRDTState = data1.GetState()
 
 	var firstOp, secondOp CRDTOperation
-	i := 0
-	for op := range firstSiteState {
-		if i == 0 {
-			firstOp = op
-		} else if i == 1 {
-			secondOp = op
-		}
-		i++
+	if len(firstSiteState) >= 2 {
+		firstOp = firstSiteState[0]
+		secondOp = firstSiteState[1]
 	}
 
 	err = data2.UpdateState(GetNewStateFromOp(secondOp))

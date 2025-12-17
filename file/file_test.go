@@ -61,7 +61,7 @@ func TestNewFileContextOperation(t *testing.T) {
 	var state cvrdt.CvRDTState = ctxState.GetState()
 
 	operations := make([]cvrdt.CRDTOperation, 0, len(state))
-	for c := range state {
+	for _, c := range state {
 		operations = append(operations, c)
 	}
 

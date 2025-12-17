@@ -15,20 +15,59 @@ type SnapshotCvrdt[X utils.Mergeable[X], R any] interface {
 	utils.SnapshotView[R]
 }
 
-type CvRDTState map[CRDTOperation]struct{}
+type CvRDTState []CRDTOperation
+
+// O(log(n))
+func (w CvRDTState) binarySearch(op CRDTOperation) (int, bool) {
+	left, right := 0, len(w)
+
+	for left < right {
+		mid := left + (right-left)/2
+		cmp := w[mid].Compare(op)
+
+		if cmp == 0 {
+			return mid, true
+		} else if cmp < 0 {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+
+	return left, false
+}
+
+func (w CvRDTState) insert(op CRDTOperation) CvRDTState {
+	idx, exists := w.binarySearch(op)
+
+	if exists {
+		return w
+	}
+
+	w = append(w, nil)
+	copy(w[idx+1:], w[idx:])
+	w[idx] = op
+
+	return w
+}
+
+func (w CvRDTState) Contains(op CRDTOperation) bool {
+	_, exists := w.binarySearch(op)
+	return exists
+}
 
 func GetNewStateFromOp(ops ...CRDTOperation) CvRDTState {
-	stateInsert := make(CvRDTState, len(ops))
+	stateInsert := make(CvRDTState, 0, len(ops))
 	for _, op := range ops {
-		stateInsert[op] = struct{}{}
+		stateInsert = stateInsert.insert(op)
 	}
 	return stateInsert
 }
 
 func (w CvRDTState) Merge(state CvRDTState) CvRDTState {
-	for op := range state {
-		if _, exists := w[op]; !exists {
-			w[op] = struct{}{}
+	for _, op := range state {
+		if !w.Contains(op) {
+			w = w.insert(op)
 		}
 	}
 	return w
@@ -53,19 +92,19 @@ func NewWootCvrdtWithView(siteId string) *WootCvrdt {
 
 func (w *WootCvrdt) UpdateState(state CvRDTState) error {
 
-	var newState CvRDTState = make(map[CRDTOperation]struct{})
+	var newState CvRDTState = make(CvRDTState, 0)
 
-	for op := range state {
-		if _, ok := w.state[op]; !ok {
+	for _, op := range state {
+		if !w.state.Contains(op) {
 			resOp, err := w.site.ComputeOp(op)
 
-			_, ok = err.(*utils.ErrPendingState)
+			_, ok := err.(*utils.ErrPendingState)
 
 			if err != nil && !ok {
 				return err
 			}
 
-			newState[resOp] = struct{}{}
+			newState = newState.insert(resOp)
 		}
 	}
 
@@ -93,9 +132,7 @@ func (w *WootCvrdt) Snapshot() (string, bool) {
 
 func (w *WootCvrdt) Clone() utils.StateStore[CvRDTState] {
 	clonedState := make(CvRDTState, len(w.state))
-	for op, value := range w.state {
-		clonedState[op] = value
-	}
+	copy(clonedState, w.state)
 
 	clonedSite := *NewSite(w.site.siteId)
 
