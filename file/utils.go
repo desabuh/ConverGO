@@ -2,6 +2,7 @@ package file
 
 import (
 	"errors"
+	"fmt"
 	"os"
 )
 
@@ -20,6 +21,16 @@ func IsFileExists(path string) (bool, error) {
 }
 
 func CreateFile(path string) error {
+	// Check if file already exists
+	exist, err := IsFileExists(path)
+	if err != nil {
+		return err
+	}
+
+	if exist {
+		return fmt.Errorf("file already exists: %s", path)
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		return err
