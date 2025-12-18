@@ -8,13 +8,14 @@ import (
 )
 
 // a FileContext[M] over an internal state M exposed in the form of a string (e.g. collaborative texting, concurrent logging...)
-type StringFileContext[M any] struct {
+type StringFileContext[M utils.Clonable[M]] struct {
 	*FileContext[M, string]
 }
 
-// describe an abstraction over some context metastate M synchronized with an open stream.
+// describe an abstraction over some observable metastate with state M synchronized with an open stream with an exposed rappresentation R.
 // The exposed state R can o cannot (isStateTracked parameter) be continously observed by polling and dumped into the file
-type FileContext[M any, R any] struct {
+// The internal M state should be Clonable for external exposure reasons
+type FileContext[M utils.Clonable[M], R any] struct {
 	domain         string
 	localPath      string
 	metaState      utils.ObservableState[M, R]
@@ -22,7 +23,7 @@ type FileContext[M any, R any] struct {
 	poller         StatePollingDumper[R]
 }
 
-func GetNewFileContext[M any](domain string, localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *StringFileContext[M] {
+func GetNewFileContext[M utils.Clonable[M]](domain string, localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *StringFileContext[M] {
 	return &StringFileContext[M]{
 		FileContext: &FileContext[M, string]{
 			domain:         domain,
@@ -58,7 +59,7 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 	return FileContextInfo[M]{
 		domain:        fc.domain,
 		localPath:     fc.localPath,
-		readOnlyState: fc.metaState.Clone(),
+		readOnlyState: fc.metaState.GetState().Clone(),
 	}
 }
 
@@ -66,5 +67,5 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 type FileContextInfo[M any] struct {
 	domain        string
 	localPath     string
-	readOnlyState utils.ReadonlyStateStore[M]
+	readOnlyState M
 }

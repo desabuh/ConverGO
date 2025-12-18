@@ -1,12 +1,13 @@
 package utils
 
-// An entity with the ability to merge itself and return a new merged self
+// An entity with the ability to merge itself and return a new merged self and to be Clonable
 type Mergeable[T any] interface {
 	Merge(state T) T
+	Clonable[T]
 }
 
 // Provide a StateStore that can be also Observed (with a pull approach) and return a rappresentation R of the state S
-type ObservableState[S any, R any] interface {
+type ObservableState[S Clonable[S], R any] interface {
 	StateStore[S]
 	SnapshotView[R]
 }
@@ -17,12 +18,16 @@ type SnapshotView[V any] interface {
 }
 
 // An interface for an object to provide its state and update it
-type StateStore[X any] interface {
+type StateStore[X Clonable[X]] interface {
 	UpdateState(data X) error
 	ReadonlyStateStore[X]
 }
 
-type ReadonlyStateStore[X any] interface {
+type ReadonlyStateStore[X Clonable[X]] interface {
 	GetState() X
-	Clone() StateStore[X]
+}
+
+// an interface for an object with the ability to deepvopy itself
+type Clonable[X any] interface {
+	Clone() X
 }

@@ -73,6 +73,12 @@ func (w CvRDTState) Merge(state CvRDTState) CvRDTState {
 	return w
 }
 
+func (w CvRDTState) Clone() CvRDTState {
+	clonedState := make(CvRDTState, len(w))
+	copy(clonedState, w)
+	return clonedState
+}
+
 // A state based CRDT wrapping WOOT operations in a state. It also implement Snapshot[string] to expose a simpler textual rappresentation
 // of a Woot site without the need to manually reconstruct it from all operations
 type WootCvrdt struct {
@@ -128,17 +134,4 @@ func (w *WootCvrdt) Snapshot() (string, bool) {
 	w.isStateUpToDate = true
 
 	return w.site.GetCurrentData(), temp
-}
-
-func (w *WootCvrdt) Clone() utils.StateStore[CvRDTState] {
-	clonedState := make(CvRDTState, len(w.state))
-	copy(clonedState, w.state)
-
-	clonedSite := *NewSite(w.site.siteId)
-
-	return &WootCvrdt{
-		site:            clonedSite,
-		state:           clonedState,
-		isStateUpToDate: false,
-	}
 }

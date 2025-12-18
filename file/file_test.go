@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
-	"github.com/desabuh/convergo/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,26 +38,9 @@ func TestNewFileContextOperation(t *testing.T) {
 		),
 	)
 
-	var ctxState = fileCtx.GetStateCopy().readOnlyState
-
-	snap, _ := ctxState.(utils.ObservableState[cvrdt.CvRDTState, string])
-
-	snap.UpdateState(
-		cvrdt.GetNewStateFromOp(
-			cvrdt.CreateNewLocalOp(
-				cvrdt.Insertion,
-				START_POS,
-				CONTENT,
-				SITE_ID,
-			),
-		),
-	)
-
-	assert.Equal(t, utils.First(snap.Snapshot()), CONTENT)
+	var state cvrdt.CvRDTState = fileCtx.GetStateCopy().readOnlyState
 
 	time.Sleep(300 * time.Millisecond)
-
-	var state cvrdt.CvRDTState = ctxState.GetState()
 
 	operations := make([]cvrdt.CRDTOperation, 0, len(state))
 	for _, c := range state {

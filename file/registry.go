@@ -7,13 +7,13 @@ import (
 	"github.com/desabuh/convergo/utils"
 )
 
-type FileRegistry[M any] struct {
+type FileRegistry[M utils.Clonable[M]] struct {
 	domain            string
 	localDomainPrefix string
 	fileContexts      map[string]*StringFileContext[M]
 }
 
-func CreateNewFileRegistry[M any, R any](domain string, domainLocalPrefix string) *FileRegistry[M] {
+func CreateNewFileRegistry[M utils.Clonable[M], R any](domain string, domainLocalPrefix string) *FileRegistry[M] {
 	return &FileRegistry[M]{
 		domain:            domain,
 		localDomainPrefix: domainLocalPrefix,
@@ -52,7 +52,7 @@ func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) error {
 		return err
 	}
 
-	err = ctx.UpdateState(fileCtx.readOnlyState.GetState())
+	err = ctx.UpdateState(fileCtx.readOnlyState)
 
 	return err
 
@@ -67,10 +67,10 @@ func (fr *FileRegistry[M]) GetFileCtxInfo(fileName string) (FileContextInfo[M], 
 	return ctx.GetStateCopy(), nil
 }
 
-func (fr *FileRegistry[M]) GetAllFileCtxInfo() map[FileContextInfo[M]]struct{} { // fornisce i dati su tutti i file context readonly (per spedirli)
-	result := make(map[FileContextInfo[M]]struct{})
-	for _, ctx := range fr.fileContexts {
-		result[ctx.GetStateCopy()] = struct{}{}
+func (fr *FileRegistry[M]) GetAllFileCtxInfo() map[string]FileContextInfo[M] { // fornisce i dati su tutti i file context readonly (per spedirli)
+	result := make(map[string]FileContextInfo[M])
+	for fileName, ctx := range fr.fileContexts {
+		result[fileName] = ctx.GetStateCopy()
 	}
 	return result
 }
