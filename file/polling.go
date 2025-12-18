@@ -74,4 +74,5 @@ func (sd *StatePollingDumper[R]) Run() {
 func (sd *StatePollingDumper[R]) Stop() {
 	close(sd.stopCh)
 	sd.wg.Wait()
+	sd.writer.(*os.File).Close()
 }
