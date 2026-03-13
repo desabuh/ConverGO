@@ -8,7 +8,7 @@ import (
 
 type Site struct {
 	siteId string
-	clock  LamportClock
+	clock  VectorClock // Value type, not pointer
 
 	characters WString
 
@@ -18,7 +18,7 @@ type Site struct {
 func NewSite(siteId string) *Site {
 	return &Site{
 		siteId:     siteId,
-		clock:      LamportClock{},
+		clock:      NewVectorClock(siteId), // No & needed
 		characters: *NewWString(siteId),
 
 		pendingOps: make([]WootOperation, 0),
@@ -63,6 +63,9 @@ func (s *Site) tryComputePendings() {
 
 func (s *Site) computeExtOp(op WootOperation) error {
 	if s.IsExecutable(op) {
+		// Update vector clock with received operation's clock (merge only, no increment)
+		s.clock.Update(op.OpId().Clock)
+
 		if op.opType == Deletion {
 			charToRemove := s.characters.GetById(op.character.id)
 			s.IntegrateDel(charToRemove)
@@ -76,12 +79,14 @@ func (s *Site) computeExtOp(op WootOperation) error {
 	}
 
 	s.pendingOps = append(s.pendingOps, op)
-	return &utils.ErrPendingState{Msg: "Operation with id " + op.ID() + " cannot currently be executed"}
+	return &utils.ErrPendingState{Msg: "Operation with id " + op.OpId().String() + " cannot currently be executed"}
 }
 
 func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 
-	newValue := s.clock.Increment()
+	s.clock.Increment()
+	clockSnapshot := s.clock.Copy()
+	lamportClock := s.clock.Value()
 
 	prevChar, err := s.characters.GetIthVisibleValue(pos, false)
 
@@ -97,8 +102,8 @@ func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 
 	wchar := &WCharacter{
 		id: WCharacterId{
-			s.siteId,
-			newValue,
+			SiteId: s.siteId,
+			Clock:  lamportClock, // Use Lamport clock only
 		},
 		alphaValue: str,
 		visible:    true,
@@ -109,6 +114,10 @@ func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 	s.IntegrateIns(wchar, prevChar, nextChar)
 
 	return WootOperation{
+		opId: LogicalId{
+			SiteId: s.siteId,
+			Clock:  clockSnapshot, // Full vector clock for operation tracking
+		},
 		character: *wchar,
 		opType:    Insertion,
 	}, nil
@@ -117,16 +126,25 @@ func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 
 func (s *Site) GenerateDel(pos int) (WootOperation, error) {
 
+	// Get the character to delete
 	wchar, err := s.characters.GetIthVisibleValue(pos, true)
 
 	if err != nil {
 		return WootOperation{}, err
 	}
 
+	// Increment clock for the deletion operation
+	s.clock.Increment()
+	clockSnapshot := s.clock.Copy()
+
 	s.IntegrateDel(wchar)
 
 	return WootOperation{
-		character: *wchar,
+		opId: LogicalId{
+			SiteId: s.siteId,
+			Clock:  clockSnapshot, // Full vector clock for operation tracking
+		},
+		character: *wchar, // Original character (with its WCharacterId)
 		opType:    Deletion,
 	}, nil
 }

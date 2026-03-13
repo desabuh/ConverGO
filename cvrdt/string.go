@@ -22,7 +22,7 @@ func NewWString(siteId string) *WString {
 
 func (w *WString) GetById(charId WCharacterId) *WCharacter {
 	for i := range w.sequence {
-		if w.sequence[i].id.Equals(charId) {
+		if WCharacterIdEquals(w.sequence[i].id, charId) {
 			return w.sequence[i]
 		}
 	}
@@ -35,7 +35,7 @@ func (w WString) GetLen() int {
 
 func (w WString) GetPos(charId WCharacterId) int {
 	for pos, el := range w.sequence {
-		if el.id.Equals(charId) {
+		if WCharacterIdEquals(el.id, charId) {
 			return pos
 		}
 	}
@@ -70,7 +70,7 @@ func (w WString) SubSeq(startChar WCharacter, endChar WCharacter) []*WCharacter 
 
 func (w WString) Contains(element WCharacterId) bool {
 	return slices.ContainsFunc(w.sequence, func(char *WCharacter) bool {
-		return char.id == element
+		return WCharacterIdEquals(char.id, element)
 	})
 }
 
