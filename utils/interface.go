@@ -27,7 +27,14 @@ type ReadonlyStateStore[X Clonable[X]] interface {
 	GetState() X
 }
 
-// an interface for an object with the ability to deepvopy itself
+// an interface for an object with the ability to deepcopy itself
 type Clonable[X any] interface {
 	Clone() X
+}
+
+// a generic parser that takes a comparable type in input, parse it and return a Value
+// An input can be directly binded to a specific Value
+type Parser[Input comparable, Value any] interface {
+	Parse(input Input) (Value, error)
+	Register(input Input, action Value)
 }
