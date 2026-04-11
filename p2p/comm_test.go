@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTCPServerListen(t *testing.T) {
@@ -87,12 +88,12 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 	go func() {
 		defer client.Shutdown()
 
-		err := client.Add(addr)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := client.Add(ctx, addr)
 
 		assert.Nil(t, err, "connection with "+listenerAddr+" should succeed")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
 
 		err = client.Send(ctx, event, addr)
 
@@ -100,10 +101,84 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 
 	}()
 
-	for recEvent := range server.GetReceiveCh() {
+	select {
+	case recEvent := <-server.GetReceiveCh():
 		assert.Equal(t, recEvent, event, "received bytestream string should be match")
-
-		break
+	case <-time.After(4 * time.Second):
+		t.Fatal("timeout waiting for event")
 	}
+
+}
+
+func TestTransportWithHandshake(t *testing.T) {
+	encDec := NewMatchingEncDec(JsonEncoder[PeerHostInfo]{}, JsonDecoder[PeerHostInfo]{})
+
+	localHostInfoA := PeerHostInfo{
+		Id:      "1",
+		Name:    "A",
+		Address: "localhost:8081",
+	}
+
+	addr1, err := net.ResolveTCPAddr("tcp", localHostInfoA.Address)
+
+	require.Nil(t, err, "Address A should be valid not "+addr1.String())
+
+	localHostInfoB := PeerHostInfo{
+		Id:      "2",
+		Name:    "B",
+		Address: "localhost:8082",
+	}
+
+	addr2, err := net.ResolveTCPAddr("tcp", localHostInfoB.Address)
+
+	require.Nil(t, err, "Address B should be valid not "+addr2.String())
+
+	localHostInfoC := PeerHostInfo{
+		Id:      "3",
+		Name:    "C",
+		Address: "localhost:8083",
+	}
+
+	addr3, err := net.ResolveTCPAddr("tcp", localHostInfoC.Address)
+
+	require.Nil(t, err, "Address C should be valid not "+addr3.String())
+
+	var hostA = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoA, encDec))
+	var hostB = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoB, encDec))
+	var hostC = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoC, encDec))
+
+	go hostA.ListenFor(addr1)
+
+	go hostB.ListenFor(addr2)
+
+	go hostC.ListenFor(addr3)
+
+	time.Sleep(1 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	err = hostA.Add(ctx, addr2)
+
+	require.Nil(t, err, "Peer B should be successfully added")
+
+	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err = hostA.Add(ctx, addr3)
+
+	require.Nil(t, err, "Peer C should be successfully added")
+
+	require.True(t, len(hostA.peers) == 2)
+	require.True(t, len(hostB.peers) == 1)
+	require.True(t, len(hostC.peers) == 1)
+
+	hostA.removePeer(addr2)
+
+	time.Sleep(1 * time.Second)
+
+	require.True(t, len(hostA.peers) == 1)
+	require.True(t, len(hostB.peers) == 0)
+	require.True(t, len(hostC.peers) == 1)
 
 }

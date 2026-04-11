@@ -76,7 +76,7 @@ func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) error {
 		return err
 	}
 
-	err = ctx.UpdateState(fileCtx.readOnlyState)
+	err = ctx.UpdateState(fileCtx.ReadOnlyState)
 
 	return err
 
@@ -89,6 +89,17 @@ func (fr *FileRegistry[M]) GetFileCtxInfo(fileName string) (FileContextInfo[M], 
 	}
 
 	return ctx.GetStateCopy(), nil
+}
+
+func (fr *FileRegistry[M]) GetFileContent(fileName string) (string, error) {
+	fctx, err := fr.getFileCtx(fileName)
+
+	if err != nil {
+		return "", err
+	}
+
+	return utils.First(fctx.metaState.Snapshot()), nil
+
 }
 
 func (fr *FileRegistry[M]) RemoveFileCtx(filename string) error {

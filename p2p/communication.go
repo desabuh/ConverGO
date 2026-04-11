@@ -7,7 +7,10 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
+
+const INCOMING_HANDSHAKE_TIMEOUT = 10 * time.Second
 
 type Flag interface {
 	io.Closer
@@ -74,6 +77,8 @@ type TCPLayer[D any] struct {
 	shutdown Flag
 	msgCh    chan D
 
+	handshaker HandShaker[net.Conn]
+
 	endDec EncoderDecoder[D]
 
 	mu    sync.Mutex
@@ -81,12 +86,18 @@ type TCPLayer[D any] struct {
 }
 
 func NewTCPTransport[D any]() *TCPLayer[D] {
+	return NewTCPTransportWithShake[D](&NopHandshaker{})
+
+}
+
+func NewTCPTransportWithShake[D any](handshaker HandShaker[net.Conn]) *TCPLayer[D] {
 	return &TCPLayer[D]{
 		shutdown: &ShutDownFlag{
 			shutdownCh: make(chan struct{}),
 		},
-		peers: make(map[net.Addr]Peer),
-		msgCh: make(chan D),
+		handshaker: handshaker,
+		peers:      make(map[net.Addr]Peer),
+		msgCh:      make(chan D),
 	}
 }
 
@@ -143,14 +154,19 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 				continue
 			}
 
-			peer, err := NewTCPPeer(conn)
+			//this context should not be cancelled, it's only intended use is to define timeout con incoming handshaking requests
+			ctx, cancel := context.WithTimeout(context.Background(), INCOMING_HANDSHAKE_TIMEOUT)
+			defer cancel()
+			peer, err := t.handshaker.Shake(context.Background(), conn, Receiver)
+
 			if err != nil {
-				fmt.Printf("Cannot create a new TCP peer: %s", err)
+				fmt.Printf("Incoming peer connection request failed: %v", err)
+				continue
 			}
 
-			t.addPeer(peer.RemoteAddress, peer)
+			t.addPeer(peer.(*TCPPeer).RemoteAddress, peer)
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(context.Background())
 			go func(p Peer) {
 				defer cancel()
 				t.handlePeer(ctx, peer)
@@ -187,8 +203,8 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 				t.msgCh <- data
 			}
 
-		case err, ok := <-peerErrCh:
-			fmt.Printf("peer %v error: %v\n", p, err)
+		case _, ok := <-peerErrCh:
+			//fmt.Printf("peer %v error: %v\n", p, err)
 			if !ok {
 				return
 			}
@@ -200,28 +216,35 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 
 }
 
-func (t *TCPLayer[D]) connectTo(address string) (Peer, error) {
+func (t *TCPLayer[D]) connectTo(ctx context.Context, address string) (Peer, error) {
 	conn, err := net.Dial("tcp", address)
 
 	if err != nil {
 		return nil, err
 	}
 
-	peer, err := NewTCPPeer(conn)
+	peer, err := t.handshaker.Shake(ctx, conn, Initiator)
+
 	if err != nil {
-		fmt.Printf("Cannot create a new TCP peer, connection aborted: %s", err)
+		//fmt.Printf("Cannot create a new TCP peer, connection aborted: %s", err)
 		conn.Close()
+		return nil, fmt.Errorf("Connection closed: %w", err)
 	}
 
 	return peer, nil
 }
 
-func (t *TCPLayer[D]) Add(target net.Addr) error {
+func (t *TCPLayer[D]) Add(ctx context.Context, target net.Addr) error {
+
+	if target.String() == t.Address {
+		return fmt.Errorf("Cannot connect to %s (same address as local listening address)", t.Address)
+	}
+
 	if t.isPeerPresent(target) {
 		return fmt.Errorf("target peer %v already exists", target)
 	}
 
-	peer, err := t.connectTo(target.String())
+	peer, err := t.connectTo(ctx, target.String())
 
 	if err != nil {
 		return err
@@ -264,5 +287,10 @@ func (t *TCPLayer[D]) addPeer(addr net.Addr, p Peer) {
 func (t *TCPLayer[D]) removePeer(addr net.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	peer := t.peers[addr]
+	peer.Close()
+
 	delete(t.peers, addr)
+
 }

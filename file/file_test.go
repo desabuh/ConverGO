@@ -41,7 +41,7 @@ func TestNewFileContextOperation(t *testing.T) {
 		),
 	)
 
-	var state cvrdt.CvRDTState = fileCtx.GetStateCopy().readOnlyState
+	var state cvrdt.CvRDTState = fileCtx.GetStateCopy().ReadOnlyState
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -141,7 +141,7 @@ func TestFileRegistryUpdateFileCtx(t *testing.T) {
 		cvrdt.CreateNewLocalOp(cvrdt.Insertion, 0, CONTENT, SITE_ID_2),
 	)
 
-	info.readOnlyState = newState
+	info.ReadOnlyState = newState
 	err = registry.UpdateFileCtx(info)
 	assert.Nil(t, err)
 
@@ -149,7 +149,7 @@ func TestFileRegistryUpdateFileCtx(t *testing.T) {
 
 	updatedInfo, err := registry.GetFileCtxInfo(FILE_NAME)
 	assert.Nil(t, err)
-	assert.True(t, len(updatedInfo.readOnlyState) > 0, "State should have operations")
+	assert.True(t, len(updatedInfo.ReadOnlyState) > 0, "State should have operations")
 }
 
 func TestFileRegistryUpdateNonExistentFile(t *testing.T) {
@@ -166,7 +166,7 @@ func TestFileRegistryUpdateNonExistentFile(t *testing.T) {
 	info := FileContextInfo[cvrdt.CvRDTState]{
 		domain:        DOMAIN,
 		localPath:     "non_existent.txt",
-		readOnlyState: cvrdt.GetNewStateFromOp(),
+		ReadOnlyState: cvrdt.GetNewStateFromOp(),
 	}
 
 	err := registry.UpdateFileCtx(info)
@@ -195,7 +195,7 @@ func TestFileRegistryGetFileCtxInfo(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, DOMAIN, info.domain)
 	assert.Equal(t, FILE_NAME, info.localPath)
-	assert.NotNil(t, info.readOnlyState)
+	assert.NotNil(t, info.ReadOnlyState)
 }
 
 func TestFileRegistryGetNonExistentFileCtxInfo(t *testing.T) {
@@ -321,9 +321,9 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 		)
 
 		currentInfo, _ := registry.GetFileCtxInfo(FILE_NAME)
-		mergedState := currentInfo.readOnlyState.Merge(newState)
+		mergedState := currentInfo.ReadOnlyState.Merge(newState)
 
-		currentInfo.readOnlyState = mergedState
+		currentInfo.ReadOnlyState = mergedState
 		err = registry.UpdateFileCtx(currentInfo)
 		assert.Nil(t, err)
 	}
@@ -332,7 +332,7 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 
 	finalInfo, err := registry.GetFileCtxInfo(FILE_NAME)
 	assert.Nil(t, err)
-	assert.Equal(t, len(operations), len(finalInfo.readOnlyState), "Should have all operations")
+	assert.Equal(t, len(operations), len(finalInfo.ReadOnlyState), "Should have all operations")
 
 	fullPath := DOMAIN_PATH + FILE_NAME
 	content, err := os.ReadFile(fullPath)

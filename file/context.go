@@ -62,7 +62,7 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 		siteId:        fc.siteId,
 		domain:        fc.domain,
 		localPath:     fc.localPath,
-		readOnlyState: fc.metaState.GetState().Clone(),
+		ReadOnlyState: fc.metaState.GetState().Clone(),
 	}
 }
 
@@ -71,5 +71,5 @@ type FileContextInfo[M any] struct {
 	siteId        string
 	domain        string
 	localPath     string
-	readOnlyState M
+	ReadOnlyState M
 }

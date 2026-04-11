@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -18,6 +19,8 @@ type Peer interface {
 	io.Closer
 	Send(context.Context, []byte) error
 	Receive(context.Context) (<-chan []byte, <-chan error)
+	SetPeerInfo(info PeerHostInfo)
+	GetPeerInfo() PeerHostInfo
 }
 
 const (
@@ -29,6 +32,13 @@ type TCPPeer struct {
 	mu sync.Mutex
 	net.Conn
 
+	remotePeerInfo PeerHostInfo
+
+	msgCh chan []byte
+	errCh chan error
+
+	recVOnce sync.Once
+
 	RemoteAddress net.Addr
 }
 
@@ -37,8 +47,11 @@ func NewTCPPeer(conn net.Conn) (*TCPPeer, error) {
 	// 	return nil, fmt.Errorf("connection is not TCP: %s", network)
 	// }
 
-	return &TCPPeer{
+	if conn == nil {
+		return nil, fmt.Errorf("provided connection is not valid")
+	}
 
+	return &TCPPeer{
 		Conn:          conn,
 		RemoteAddress: conn.RemoteAddr(),
 	}, nil
@@ -81,76 +94,155 @@ func (t *TCPPeer) Send(ctx context.Context, bytes []byte) error {
 	return nil
 }
 
+// This method is not idempotent: the first call for this method create a readloop gourutine and return msg and error channel
+// Successive calls will simply return the channel
+// Important: successive calls have no ownership over the context control so, the internal goroutine can only be stopped through
+// explicit closing the connection with the peer or timeout the context owner
 func (t *TCPPeer) Receive(ctx context.Context) (<-chan []byte, <-chan error) {
-	msgCh := make(chan []byte, 16)
-	errCh := make(chan error, 1)
+	t.recVOnce.Do(func() {
+		t.msgCh = make(chan []byte, 16)
+		t.errCh = make(chan error, 1)
 
-	var deadline time.Time
+		go t.readLoop(ctx)
+	})
 
-	if ctxDeadline, ok := ctx.Deadline(); ok {
-		deadline = ctxDeadline
-	} else {
-		deadline = time.Now().Add(defaultReadTimeout)
-	}
+	return t.msgCh, t.errCh
+}
 
-	_ = t.Conn.SetReadDeadline(deadline)
+// func (t *TCPPeer) Receive(ctx context.Context) (<-chan []byte, <-chan error) {
+// 	msgCh := make(chan []byte, 16)
+// 	errCh := make(chan error, 1)
+
+// 	var deadline time.Time
+
+// 	if ctxDeadline, ok := ctx.Deadline(); ok {
+// 		deadline = ctxDeadline
+// 	} else {
+// 		//deadline = time.Now().Add(defaultReadTimeout)
+// 	}
+
+// 	_ = t.Conn.SetReadDeadline(deadline)
+
+// 	go func() {
+// 		defer close(msgCh)
+// 		defer close(errCh)
+
+// 		buf := make([]byte, 1024)
+
+// 		cancelDone := make(chan struct{})
+
+// 		go func() {
+// 			select {
+// 			case <-ctx.Done():
+// 				_ = t.Conn.SetReadDeadline(time.Now())
+// 			case <-cancelDone:
+// 			}
+// 		}()
+
+// 		for {
+// 			n, err := t.Conn.Read(buf)
+// 			if err != nil {
+// 				if _, ok := err.(net.Error); ok {
+// 					select {
+// 					case <-ctx.Done():
+// 						errCh <- ctx.Err()
+// 						close(cancelDone)
+// 						return
+// 					default:
+// 						errCh <- err
+// 						close(cancelDone)
+// 						return
+// 					}
+// 				}
+
+// 				if err == io.EOF {
+// 					close(cancelDone)
+// 					return
+// 				}
+
+// 				errCh <- err
+// 				continue
+// 			}
+
+// 			msg := make([]byte, n)
+// 			copy(msg, buf[:n])
+
+// 			select {
+// 			case msgCh <- msg:
+// 			case <-ctx.Done():
+// 				errCh <- ctx.Err()
+// 				close(cancelDone)
+// 				return
+// 			}
+// 		}
+// 	}()
+
+// 	return msgCh, errCh
+
+// }
+
+func (t *TCPPeer) readLoop(ctx context.Context) {
+	defer close(t.msgCh)
+	defer close(t.errCh)
+
+	buf := make([]byte, 1024)
+
+	cancelDone := make(chan struct{})
 
 	go func() {
-		defer close(msgCh)
-		defer close(errCh)
-
-		buf := make([]byte, 1024)
-
-		cancelDone := make(chan struct{})
-
-		go func() {
-			select {
-			case <-ctx.Done():
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.Canceled {
 				_ = t.Conn.SetReadDeadline(time.Now())
-			case <-cancelDone:
 			}
-		}()
-
-		for {
-			n, err := t.Conn.Read(buf)
-			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					select {
-					case <-ctx.Done():
-						errCh <- ctx.Err()
-						close(cancelDone)
-						return
-					default:
-						errCh <- err
-						close(cancelDone)
-						return
-					}
-				}
-
-				if err == io.EOF {
-					close(cancelDone)
-					return
-				}
-
-				errCh <- err
-				continue
-			}
-
-			msg := make([]byte, n)
-			copy(msg, buf[:n])
-
-			select {
-			case msgCh <- msg:
-			case <-ctx.Done():
-				errCh <- ctx.Err()
-				close(cancelDone)
-				return
-			}
+		case <-cancelDone:
 		}
 	}()
 
-	return msgCh, errCh
+	for {
+		n, err := t.Conn.Read(buf)
+		if err != nil {
+			if _, ok := err.(net.Error); ok {
+				select {
+				case <-ctx.Done():
+					t.errCh <- ctx.Err()
+					close(cancelDone)
+					return
+				default:
+					t.errCh <- err
+					close(cancelDone)
+					return
+				}
+			}
 
+			if err == io.EOF {
+				close(cancelDone)
+				return
+			}
+
+			t.errCh <- err
+			continue
+		}
+
+		msg := make([]byte, n)
+		copy(msg, buf[:n])
+
+		select {
+		case t.msgCh <- msg:
+		case <-ctx.Done():
+			t.errCh <- ctx.Err()
+			close(cancelDone)
+			return
+		}
+	}
+}
+
+func (t *TCPPeer) GetPeerInfo() PeerHostInfo {
+	return t.remotePeerInfo
+}
+
+func (t *TCPPeer) SetPeerInfo(info PeerHostInfo) {
+	t.remotePeerInfo = info
 }
 
 func (t *TCPPeer) Close() error {
