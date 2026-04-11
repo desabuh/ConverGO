@@ -3,42 +3,77 @@ package command
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
+type Status int
+
+const (
+	Success Status = iota
+	Error
+)
+
+// simple struct to return the result of a command
+type ResultMessage struct {
+	Status  Status
+	Message string
+	Payload any
+}
+
+func FromError(err error) ResultMessage {
+	return ResultMessage{
+		Status:  Error,
+		Message: err.Error(),
+		Payload: nil,
+	}
+}
+
+func FromErrStr(str string, params ...any) ResultMessage {
+	return FromError(fmt.Errorf(str, params...))
+}
+
+func FromSuccess(msg string, payload any, params ...any) ResultMessage {
+	return ResultMessage{
+		Status:  Success,
+		Message: fmt.Sprintf(msg, params...),
+		Payload: payload,
+	}
+}
+
 // functional interface to execute commands
-// Execute() method should accept a context and a send-only channel to report eventual error
+// Execute() method should accept a context and a send-only channel to report the result of the operation
 // the way this interface is written is not intended to report result (except for errors)
 type Command interface {
-	Execute(ctx context.Context, done chan<- error)
+	Execute(ctx context.Context, args []string, done chan<- ResultMessage)
 }
 
 // function decorator to wrap functional interface Command
 // it should be used wether using closure in the command usage is important
-// done is an error channel (nil means no error is got at the end)
-type CommandFunc func(ctx context.Context, done chan<- error)
+// done is the result channel
+type CommandFunc func(ctx context.Context, args []string, done chan<- ResultMessage)
 
-func (f CommandFunc) Execute(ctx context.Context, done chan<- error) {
-	f(ctx, done)
+func (f CommandFunc) Execute(ctx context.Context, args []string, done chan<- ResultMessage) {
+	f(ctx, args, done)
 }
 
 func WithTimeoutCommand(base CommandFunc, timeout time.Duration) CommandFunc {
-	return func(ctx context.Context, done chan<- error) {
+	return func(ctx context.Context, args []string, done chan<- ResultMessage) {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
-		taskChannel := make(chan error, 1)
+		resChannel := make(chan ResultMessage, 1)
 
 		go func() {
-			base(ctx, taskChannel)
-			taskChannel <- nil
+			base(ctx, args, resChannel)
 		}()
 
 		select {
-		case err := <-taskChannel:
-			done <- err
+		case res := <-resChannel:
+			done <- res
 		case <-ctx.Done():
-			done <- ctx.Err()
+			done <- FromError(ctx.Err())
+
 		}
 	}
 
@@ -55,12 +90,32 @@ func NewCommandParser() CommandParser {
 }
 
 func (p *CommandParser) Parse(input string) (Command, error) {
-	if command, exists := p.commands[input]; exists {
-		return command, nil
+	res := strings.Split(input, " ")
+
+	if len(res) < 2 { //command should have a at least an argument
+		return &CommandWithArgs{}, fmt.Errorf("command input not complete: %s", res)
 	}
-	return nil, fmt.Errorf("command not found: %s", input)
+
+	cmdStr := res[0]
+	args := res[1:]
+
+	if command, exists := p.commands[cmdStr]; exists {
+		return &CommandWithArgs{command, args}, nil
+	}
+	return &CommandWithArgs{}, fmt.Errorf("command not found: %s", cmdStr)
 }
 
-func (p *CommandParser) Register(input string, action Command) {
+func (p CommandParser) Register(input string, action Command) CommandParser {
 	p.commands[input] = action
+	return p
+}
+
+// simple decorator to store internally the argument, the second parameter in Execute method in not needed, only necessary to conform to interface
+type CommandWithArgs struct {
+	cmd  Command
+	args []string
+}
+
+func (c *CommandWithArgs) Execute(ctx context.Context, args []string, done chan<- ResultMessage) {
+	c.cmd.Execute(ctx, c.args, done)
 }
