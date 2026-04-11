@@ -20,10 +20,10 @@ type SnapshotView[V any] interface {
 // An interface for an object to provide its state and update it
 type StateStore[X Clonable[X]] interface {
 	UpdateState(data X) error
-	ReadonlyStateStore[X]
+	ReadOnlyStateStore[X]
 }
 
-type ReadonlyStateStore[X Clonable[X]] interface {
+type ReadOnlyStateStore[X Clonable[X]] interface {
 	GetState() X
 }
 
@@ -36,5 +36,5 @@ type Clonable[X any] interface {
 // An input can be directly binded to a specific Value
 type Parser[Input comparable, Value any] interface {
 	Parse(input Input) (Value, error)
-	Register(input Input, action Value)
+	Register(input Input, action Value) Parser[Input, Value]
 }
