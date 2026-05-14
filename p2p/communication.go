@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/desabuh/convergo/utils"
 )
 
 const INCOMING_HANDSHAKE_TIMEOUT = 10 * time.Second
+
+var DEFAULT_OUT_STREAM = os.Stdout
 
 type Flag interface {
 	io.Closer
@@ -60,15 +65,16 @@ func (s *ShutDownFlag) IsClosed() bool {
 // - Remove: Removes a target from the list of communication targets.
 // - GetReceiveCh: Returns a channel for receiving incoming data.
 // - Shutdown: Gracefully shuts down the transport mechanism.
-// - SetEncoderDecoder: Sets the encoder/decoder for serializing and deserializing data.
+// - SetCodec: Sets the encoder/decoder for serializing and deserializing data.
 type Transport[D any, T comparable] interface {
 	ListenFor(id T) error
 	Send(ctx context.Context, data D, target T) error
-	Add(target T) error
+	Broadcast(ctx context.Context, data D) error
+	Add(ctx context.Context, target T) error
 	Remove(target T) error
 	GetReceiveCh() <-chan D
 	Shutdown() error
-	SetEncoderDecoder(encDec EncoderDecoder[D])
+	SetCodec(encDec Codec[D])
 }
 
 type TCPLayer[D any] struct {
@@ -79,17 +85,19 @@ type TCPLayer[D any] struct {
 
 	handshaker HandShaker[net.Conn]
 
-	endDec EncoderDecoder[D]
+	endDec Codec[D]
 
 	mu    sync.Mutex
 	peers map[net.Addr]Peer
 }
 
+// create a simple transport layer with no handshake measure
 func NewTCPTransport[D any]() *TCPLayer[D] {
 	return NewTCPTransportWithShake[D](&NopHandshaker{})
 
 }
 
+// create a transport layer with a provided handshaker
 func NewTCPTransportWithShake[D any](handshaker HandShaker[net.Conn]) *TCPLayer[D] {
 	return &TCPLayer[D]{
 		shutdown: &ShutDownFlag{
@@ -101,7 +109,13 @@ func NewTCPTransportWithShake[D any](handshaker HandShaker[net.Conn]) *TCPLayer[
 	}
 }
 
-func (t *TCPLayer[D]) SetEncoderDecoder(encDec EncoderDecoder[D]) {
+// create a transport layer with an host exhange handshaker
+func NewTCPTransportWithHostExhange[D any](info PeerHostInfo, codec Codec[PeerHostInfo]) *TCPLayer[D] {
+	return NewTCPTransportWithShake[D](GetNewHostExhanger(info, codec))
+
+}
+
+func (t *TCPLayer[D]) SetCodec(encDec Codec[D]) {
 	t.endDec = encDec
 }
 
@@ -127,6 +141,25 @@ func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
 	return nil
 }
 
+func (t *TCPLayer[D]) Broadcast(ctx context.Context, data D) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.peers) == 0 {
+		return fmt.Errorf("canno broadcast, no peers are registered")
+	}
+
+	for addr := range t.peers {
+		err := t.Send(ctx, data, addr)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 	var err error
 
@@ -136,7 +169,6 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 
 	if err != nil {
 		return fmt.Errorf("listening error: %s", err)
-
 	}
 
 	defer t.listener.Close()
@@ -157,31 +189,35 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 			//this context should not be cancelled, it's only intended use is to define timeout con incoming handshaking requests
 			ctx, cancel := context.WithTimeout(context.Background(), INCOMING_HANDSHAKE_TIMEOUT)
 			defer cancel()
-			peer, err := t.handshaker.Shake(context.Background(), conn, Receiver)
+			peer, err := t.handshaker.Shake(ctx, conn, Receiver)
 
 			if err != nil {
 				fmt.Printf("Incoming peer connection request failed: %v", err)
 				continue
 			}
 
-			t.addPeer(peer.(*TCPPeer).RemoteAddress, peer)
+			utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed incoming shake with %s", peer.GetPeerInfo().Format())
+
+			t.addPeer(peer.GetPeerInfo().Address, peer)
 
 			ctx, cancel = context.WithCancel(context.Background())
 			go func(p Peer) {
 				defer cancel()
-				t.handlePeer(ctx, peer)
+				t.handlePeer(ctx, p)
 			}(peer)
 		}
 	}()
 
 	t.shutdown.WaitTermination()
 
+	close(t.msgCh)
+
 	return nil
 
 }
 
 func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
-	defer t.removePeer(p.(*TCPPeer).RemoteAddress)
+	defer t.removePeer(p.GetPeerInfo().Address)
 	defer p.Close()
 
 	peerMsgCh, peerErrCh := p.Receive(ctx)
@@ -203,9 +239,14 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 				t.msgCh <- data
 			}
 
-		case _, ok := <-peerErrCh:
-			//fmt.Printf("peer %v error: %v\n", p, err)
+		case err, ok := <-peerErrCh:
+
+			if err != nil {
+				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Error received from peer %s: %v", p.GetPeerInfo().Format(), err)
+			}
+
 			if !ok {
+				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Connection forcibly closed from %s", p.GetPeerInfo().Format())
 				return
 			}
 
@@ -226,10 +267,11 @@ func (t *TCPLayer[D]) connectTo(ctx context.Context, address string) (Peer, erro
 	peer, err := t.handshaker.Shake(ctx, conn, Initiator)
 
 	if err != nil {
-		//fmt.Printf("Cannot create a new TCP peer, connection aborted: %s", err)
 		conn.Close()
 		return nil, fmt.Errorf("Connection closed: %w", err)
 	}
+
+	utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed outgoing shake with %s", peer.GetPeerInfo().Format())
 
 	return peer, nil
 }
@@ -251,6 +293,12 @@ func (t *TCPLayer[D]) Add(ctx context.Context, target net.Addr) error {
 	}
 
 	t.addPeer(target, peer)
+
+	cttx, can := context.WithCancel(context.Background())
+	go func(p Peer) {
+		defer can()
+		t.handlePeer(cttx, p)
+	}(peer)
 
 	return nil
 }
@@ -281,6 +329,7 @@ func (t *TCPLayer[D]) isPeerPresent(target net.Addr) bool {
 func (t *TCPLayer[D]) addPeer(addr net.Addr, p Peer) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.peers[addr] = p
 }
 
@@ -288,9 +337,12 @@ func (t *TCPLayer[D]) removePeer(addr net.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	peer := t.peers[addr]
-	peer.Close()
+	if peer, ok := t.peers[addr]; ok {
 
-	delete(t.peers, addr)
+		utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Closing connection with %s peer...", peer.GetPeerInfo().Format())
+		peer.Close()
+
+		delete(t.peers, addr)
+	}
 
 }

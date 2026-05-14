@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 
@@ -43,15 +44,46 @@ func NewHandshakeError(step HostExhangerStep, address string, err error) error {
 type PeerHostInfo struct {
 	Id      string
 	Name    string
-	Address string
+	Address *net.TCPAddr
+}
+
+func CreateNewHostInfo(id string, name string, address string) (PeerHostInfo, error) {
+
+	netAddr, err := net.ResolveTCPAddr("tcp", address)
+
+	if err != nil {
+		return PeerHostInfo{}, fmt.Errorf("Cannot create a new host info: %v", err)
+	}
+
+	return PeerHostInfo{
+		Id:      id,
+		Name:    name,
+		Address: netAddr,
+	}, nil
+
+}
+
+func (info PeerHostInfo) isPeerClosed() bool {
+	return info.Address == nil
+}
+
+func (info PeerHostInfo) Format() string {
+
+	var addr = info.Address.String()
+
+	if info.isPeerClosed() {
+		addr = "Vacant"
+	}
+
+	return fmt.Sprintf("%s_%s_%s", info.Id, info.Name, addr)
 }
 
 type TCPHostExchanger struct {
-	hostInfoEncDec EncoderDecoder[PeerHostInfo]
+	hostInfoEncDec Codec[PeerHostInfo]
 	localInfo      PeerHostInfo
 }
 
-func GetNewHostExhanger(localInfo PeerHostInfo, encDec EncoderDecoder[PeerHostInfo]) TCPHostExchanger {
+func GetNewHostExhanger(localInfo PeerHostInfo, encDec Codec[PeerHostInfo]) TCPHostExchanger {
 	return TCPHostExchanger{
 		localInfo:      localInfo,
 		hostInfoEncDec: encDec,
@@ -87,13 +119,13 @@ func (ex TCPHostExchanger) initiateHandshake(ctx context.Context, peer Peer, rem
 	err = ex.sendHostName(ctx, peer)
 
 	if err != nil {
-		return nil, NewHandshakeError(StepSenderExhange, targetHostname.Address, err)
+		return nil, NewHandshakeError(StepSenderExhange, targetHostname.Address.String(), err)
 	}
 
 	_, err = ex.waitForTargetHostName(ctx, peer)
 
 	if err != nil {
-		return nil, NewHandshakeError(StepACK, targetHostname.Address, err)
+		return nil, NewHandshakeError(StepACK, targetHostname.Address.String(), err)
 	}
 
 	peer.SetPeerInfo(targetHostname)
@@ -118,7 +150,7 @@ func (ex TCPHostExchanger) receiveHandshake(ctx context.Context, peer Peer, remo
 	err = ex.sendHostName(ctx, peer) //the hostName is sent another time as ACK
 
 	if err != nil {
-		return nil, NewHandshakeError(StepSenderExhange, targetHostname.Address, err)
+		return nil, NewHandshakeError(StepSenderExhange, targetHostname.Address.String(), err)
 	}
 
 	peer.SetPeerInfo(targetHostname)
@@ -128,7 +160,7 @@ func (ex TCPHostExchanger) receiveHandshake(ctx context.Context, peer Peer, remo
 }
 
 func (ex *TCPHostExchanger) waitForTargetHostName(ctx context.Context, peer Peer) (PeerHostInfo, error) {
-	recCh, errCH := peer.Receive(ctx)
+	recCh, errCH := peer.Receive(context.Background()) //TODO
 
 	var byMsg []byte
 
