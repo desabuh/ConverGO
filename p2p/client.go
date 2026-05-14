@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 
@@ -47,10 +46,8 @@ func (c *CvrdtNetClient) WaitForMessages(ctx context.Context) {
 	for { // <- Continuously listen
 		select {
 		case env := <-recCh:
-			fmt.Println("HI")
 			c.parseRequests(env)
 		case <-ctx.Done():
-			fmt.Println("DSADSAD")
 			return
 		}
 	}
@@ -70,8 +67,6 @@ func (c *CvrdtNetClient) parseRequests(message PeerMessage) {
 			utils.Logger.NlLog(os.Stdout, "PUSH request payload from %s cannot be unwrapped %v, message discarded", message.Key.PeerHostInfo.Format(), err)
 			return
 		}
-
-		fmt.Printf("res: %v\n", res)
 
 		var contexts = utils.Map(res, func(x file.FileContextInfo[[]cvrdt.WootOperation]) file.FileContextInfo[cvrdt.CvRDTState] {
 			result := make(cvrdt.CvRDTState, len(x.ReadOnlyState))

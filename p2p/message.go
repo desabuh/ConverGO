@@ -6,6 +6,14 @@ import (
 	"github.com/google/uuid"
 )
 
+type PeerMessage = Envelope[PeerMetadata]
+
+type PeerMetadata struct {
+	MessageName string
+	isError     string
+	PeerHostInfo
+}
+
 type Message struct {
 	Name string
 	Args map[string]any
@@ -25,12 +33,12 @@ type Decoder[O any] interface {
 	Decode(data []byte) (O, error)
 }
 
-type EncoderDecoder[ED any] interface {
+type Codec[ED any] interface {
 	Encoder[ED]
 	Decoder[ED]
 }
 
-func NewMatchingEncDec[T any](encoder Encoder[T], decoder Decoder[T]) EncoderDecoder[T] {
+func NewCodec[T any](encoder Encoder[T], decoder Decoder[T]) Codec[T] {
 	return struct {
 		Encoder[T]
 		Decoder[T]
@@ -38,6 +46,10 @@ func NewMatchingEncDec[T any](encoder Encoder[T], decoder Decoder[T]) EncoderDec
 		Encoder: encoder,
 		Decoder: decoder,
 	}
+}
+
+func NewJsonCodec[T any]() Codec[T] {
+	return NewCodec(JsonEncoder[T]{}, JsonDecoder[T]{})
 }
 
 type JsonEncoder[T any] struct{}
