@@ -132,28 +132,28 @@ type CRDTOperation interface {
 
 type WootOperation struct {
 	// Operation metadata (for CRDT ordering) - uses LogicalId for consistent ordering
-	opId   LogicalId
-	opType OpType
+	Id   LogicalId
+	Type OpType
 
 	// Character data (for WOOT algorithm) - specific to WOOT
-	character WCharacter
+	Character WCharacterData
 }
 
 func (w WootOperation) OpId() LogicalId {
-	return w.opId
+	return w.Id
 }
 
 func (w WootOperation) Op() OpType {
-	return w.opType
+	return w.Type
 }
 
 func (w WootOperation) Char() string {
-	return w.character.alphaValue
+	return w.Character.AlphaValue
 }
 
 func (w WootOperation) Compare(other CRDTOperation) int {
 	// Use LogicalId's Compare method - simple and consistent!
-	return w.opId.Compare(other.OpId())
+	return w.Id.Compare(other.OpId())
 }
 
 type LocalOperation struct {

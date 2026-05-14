@@ -82,3 +82,32 @@ func (w *WCharacter) IsSpecialWChar() bool {
 	}
 	return w.alphaValue == SPECIAL_START_CHAR || w.alphaValue == SPECIAL_END_CHAR
 }
+
+func (w WCharacter) Export() WCharacterData {
+	return WCharacterData{
+		Id:         w.id,
+		AlphaValue: w.alphaValue,
+		Visible:    w.visible,
+		PreviousId: w.previousId,
+		NextId:     w.nextId,
+	}
+}
+
+// serializable exported version of Wcharacter
+type WCharacterData struct {
+	Id         WCharacterId
+	AlphaValue string
+	Visible    bool
+	PreviousId WCharacterId
+	NextId     WCharacterId
+}
+
+func (w WCharacterData) Import() WCharacter {
+	return WCharacter{
+		id:         w.Id,
+		alphaValue: w.AlphaValue,
+		visible:    w.Visible,
+		previousId: w.PreviousId,
+		nextId:     w.NextId,
+	}
+}

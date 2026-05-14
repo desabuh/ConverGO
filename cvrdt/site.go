@@ -66,14 +66,16 @@ func (s *Site) computeExtOp(op WootOperation) error {
 		// Update vector clock with received operation's clock (merge only, no increment)
 		s.clock.Update(op.OpId().Clock)
 
-		if op.opType == Deletion {
-			charToRemove := s.characters.GetById(op.character.id)
+		char := op.Character.Import()
+
+		if op.Type == Deletion {
+			charToRemove := s.characters.GetById(char.id)
 			s.IntegrateDel(charToRemove)
 		} else {
-			prev := s.characters.GetById(op.character.previousId)
-			next := s.characters.GetById(op.character.nextId)
+			prev := s.characters.GetById(char.previousId)
+			next := s.characters.GetById(char.nextId)
 
-			s.IntegrateIns(&op.character, prev, next)
+			s.IntegrateIns(&char, prev, next)
 		}
 		return nil
 	}
@@ -114,12 +116,12 @@ func (s *Site) GenerateIns(pos int, str string) (WootOperation, error) {
 	s.IntegrateIns(wchar, prevChar, nextChar)
 
 	return WootOperation{
-		opId: LogicalId{
+		Id: LogicalId{
 			SiteId: s.siteId,
 			Clock:  clockSnapshot, // Full vector clock for operation tracking
 		},
-		character: *wchar,
-		opType:    Insertion,
+		Character: wchar.Export(),
+		Type:      Insertion,
 	}, nil
 
 }
@@ -140,19 +142,19 @@ func (s *Site) GenerateDel(pos int) (WootOperation, error) {
 	s.IntegrateDel(wchar)
 
 	return WootOperation{
-		opId: LogicalId{
+		Id: LogicalId{
 			SiteId: s.siteId,
 			Clock:  clockSnapshot, // Full vector clock for operation tracking
 		},
-		character: *wchar, // Original character (with its WCharacterId)
-		opType:    Deletion,
+		Character: wchar.Export(), // Original character (with its WCharacterId)
+		Type:      Deletion,
 	}, nil
 }
 
 func (s *Site) IsExecutable(op WootOperation) bool {
-	targetWChar := op.character
+	targetWChar := op.Character.Import()
 
-	return (op.opType == Deletion && s.characters.Contains(targetWChar.id)) ||
+	return (op.Type == Deletion && s.characters.Contains(targetWChar.id)) ||
 		(s.characters.Contains(targetWChar.previousId) || s.characters.GetById(targetWChar.previousId).IsSpecialWChar()) &&
 			(s.characters.Contains(targetWChar.nextId) || s.characters.GetById(targetWChar.nextId).IsSpecialWChar())
 
