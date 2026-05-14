@@ -41,6 +41,38 @@ func FromSuccess(msg string, payload any, params ...any) ResultMessage {
 	}
 }
 
+func ConcatResultMessages(results ...ResultMessage) ResultMessage {
+	status := Success
+	var payload any
+	var messages []string
+
+	for _, r := range results {
+		// Skip uninitialized (zero-value) messages
+		if r == (ResultMessage{}) {
+			continue
+		}
+
+		if r.Status == Error {
+			status = Error
+		}
+
+		if r.Message != "" {
+			messages = append(messages, r.Message)
+		}
+
+		// Keep last non-nil payload
+		if r.Payload != nil {
+			payload = r.Payload
+		}
+	}
+
+	return ResultMessage{
+		Status:  status,
+		Message: strings.Join(messages, "\n\t"),
+		Payload: payload,
+	}
+}
+
 // functional interface to execute commands
 // Execute() method should accept a context and a send-only channel to report the result of the operation
 // the way this interface is written is not intended to report result (except for errors)
