@@ -21,6 +21,9 @@ import (
 
 // Write(p []byte) (n int, err error)
 
+const SUCCESS_PREFIX = "[SUCCESS]"
+const FAILURE_PREFIX = "[FAILURE]"
+
 func initControlFlowCommand() {
 	CommandRegistry.Register(
 		"wait",
@@ -89,7 +92,11 @@ func CheckCommand(ctx context.Context, file *os.File, out io.Writer, parser Comm
 			fmt.Println(ctx.Err())
 		case rep := <-cmdDone:
 			utils.Logger.Log(out, func(w io.Writer) {
-				fmt.Fprintln(out, rep.Message)
+				var statusCode = SUCCESS_PREFIX
+				if rep.Status == Error {
+					statusCode = FAILURE_PREFIX
+				}
+				fmt.Fprintln(out, statusCode+" "+rep.Message)
 				if rep.Payload != nil {
 					fmt.Fprintln(out, rep.Payload)
 				}

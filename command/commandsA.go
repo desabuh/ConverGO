@@ -2,22 +2,25 @@ package command
 
 import (
 	"context"
-	"net"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
-	"github.com/desabuh/convergo/file"
 	"github.com/desabuh/convergo/p2p"
+	"github.com/desabuh/convergo/utils"
 )
 
 const SITE_ID = "1"
-const DOMAIN = "TEST_DOMAIN"
 const DOMAIN_PATH = "./test_domain_concurrent/"
+
+var DEFAULT_OUT_STREAM = os.Stdout
 
 func guard(ctx context.Context, cond bool) bool {
 	return cond || ctx.Err() != nil
 }
+
+var client *p2p.CvrdtNetClient
 
 var CommandRegistry CommandParser = NewCommandParser().
 	Register(
@@ -62,22 +65,26 @@ var CommandRegistry CommandParser = NewCommandParser().
 				content = args[3]
 			}
 
-			currentInfo, err := Registry.GetFileCtxInfo(filepath)
+			currentInfo, err := client.Registry.GetFileCtxInfo(filepath)
 
 			isCtxExist := err == nil
 
+			var creationLog ResultMessage
+
 			if !isCtxExist {
-				err := Registry.CreateFileCtx(filepath, time.Duration(3*time.Second))
+				err := client.Registry.CreateFileCtx(filepath, time.Duration(3*time.Second))
+
+				creationLog = FromSuccess("A new file context %s was created", nil, filepath)
 
 				if err != nil {
-					done <- FromError(err)
+					done <- ConcatResultMessages(creationLog, FromError(err))
 					return
 				}
 
-				currentInfo, err = Registry.GetFileCtxInfo(filepath)
+				currentInfo, err = client.Registry.GetFileCtxInfo(filepath)
 
 				if err != nil {
-					done <- FromError(err)
+					done <- ConcatResultMessages(creationLog, FromError(err))
 					return
 				}
 			}
@@ -89,19 +96,33 @@ var CommandRegistry CommandParser = NewCommandParser().
 			mergedState := currentInfo.ReadOnlyState.Merge(newState)
 
 			currentInfo.ReadOnlyState = mergedState
-			err = Registry.UpdateFileCtx(currentInfo)
+			_, err = client.Registry.UpdateFileCtx(currentInfo)
 
 			if err != nil {
-				done <- FromError(err)
+				done <- ConcatResultMessages(creationLog, FromError(err))
 				return
 			}
 
 			if opType == cvrdt.Deletion {
-				currentInfo, _ = Registry.GetFileCtxInfo(filepath)
+				currentInfo, _ = client.Registry.GetFileCtxInfo(filepath)
 				content = currentInfo.ReadOnlyState[1].Char()
 			}
 
-			done <- FromSuccess("%s operation of %s in position %d was a success", nil, opStr, content, pos)
+			done <- ConcatResultMessages(creationLog, FromSuccess("%s operation of %s in position %d was a success", nil, opStr, content, pos))
+
+		}), 2*time.Second),
+	).
+	Register(
+		"push",
+		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+
+			err := client.BroadcastRegistryOverTransport(ctx)
+
+			if err != nil {
+				done <- FromErrStr("Push broadcasting failure %v", err)
+			}
+
+			done <- FromSuccess("Push broadcasting successfull!", nil)
 
 		}), 2*time.Second),
 	).
@@ -109,13 +130,17 @@ var CommandRegistry CommandParser = NewCommandParser().
 		"read",
 		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
 
+			if client == nil {
+				done <- FromErrStr("CvrdtClient should be initialized to visualize file contexts content")
+			}
+
 			if len(args) < 1 {
-				done <- FromErrStr("File path argument should be supplied")
+				done <- FromErrStr("File context <filepath> argument should be supplied")
 			}
 
 			filepath := args[0]
 
-			content, err := Registry.GetFileContent(filepath)
+			content, err := client.Registry.GetFileContent(filepath)
 
 			if err != nil {
 				done <- FromError(err)
@@ -130,14 +155,20 @@ var CommandRegistry CommandParser = NewCommandParser().
 		"history",
 		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
 
+			if client == nil {
+				done <- FromErrStr("CvrdtClient should be initialized to visualize file contexts history")
+			}
+
 			if len(args) < 1 {
-				done <- FromErrStr("File path argument should be supplied")
+				done <- FromErrStr("Should specify file context <pathfile>")
 				return
 			}
 
 			filepath := args[0]
 
-			ctxInfo, err := Registry.GetFileCtxInfo(filepath)
+			ctxInfo, err := client.Registry.GetFileCtxInfo(filepath)
+
+			//ctxInfo, err := Registry.GetFileCtxInfo(filepath)
 
 			if err != nil {
 				done <- FromError(err)
@@ -167,35 +198,32 @@ var CommandRegistry CommandParser = NewCommandParser().
 		"init",
 		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
 
-			if Network.Address != "" {
-				done <- FromErrStr("listening peer is already initialized on address %s", Network.Address)
-				return
+			if client != nil {
+				done <- FromErrStr("CvrdtClient already initialized on on address %s", client.Id.Address)
 			}
 
 			if len(args) < 1 {
-				done <- FromErrStr("ip address should be specified")
-				return
+				done <- FromErrStr("Init command should supply <ip:port> command")
 			}
 
-			addr, err := net.ResolveTCPAddr("tcp", args[0])
+			hostName := ctx.Value("hostname").(p2p.PeerHostInfo)
 
-			if err != nil {
-				done <- FromErrStr("Could not create peer: %w", err)
-				return
-			}
+			shakeCodec := p2p.NewCodec(p2p.JsonEncoder[p2p.PeerHostInfo]{}, p2p.JsonDecoder[p2p.PeerHostInfo]{})
+
+			transportCodec := p2p.NewCodec(p2p.JsonEnvelopeEncoder[p2p.PeerMetadata]{}, p2p.JsonEnvelopeDecoder[p2p.PeerMetadata]{})
+
+			client = p2p.CreateNewTCPWootBasedClient(hostName, DOMAIN_PATH, shakeCodec, transportCodec)
+
+			go client.WaitForMessages(context.Background())
 
 			go func() {
-				err := Network.ListenFor(addr)
-				done <- FromError(err)
-
+				err := client.Init()
+				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "peer waiting interface closed: %v", err)
+				return
 			}()
 
-			if err != nil {
-				done <- FromErrStr("Could not listen of address %s: %w", addr.String(), err)
-				return
-			}
+			done <- FromSuccess("Peer initialization, waiting on address %s", nil, hostName.Address.String())
 
-			done <- FromSuccess("Peer initialization, waiting on port %s", nil, addr.String())
 		},
 		), 2*time.Second),
 	).
@@ -203,41 +231,24 @@ var CommandRegistry CommandParser = NewCommandParser().
 		"pair",
 		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
 
+			if client == nil {
+				done <- FromErrStr("CvrdtClient should be initialized to pair with others clients")
+			}
+
 			if len(args) < 1 {
-				done <- FromErrStr("ip address should be specified")
+				done <- FromErrStr("Pair ip address of the target client should be specified")
 				return
 			}
 
-			targetAddr, err := net.ResolveTCPAddr("tcp", args[0])
+			err := client.Pair(ctx, args[0])
 
 			if err != nil {
-				done <- FromErrStr("Could not create peer: %w", err)
+				done <- FromErrStr("Could not pair with target client: %w", err)
 				return
 			}
 
-			err = Network.Add(ctx, targetAddr)
-
-			if err != nil {
-				done <- FromErrStr("Cannot pair with %s: %w", targetAddr.String(), err)
-				return
-			}
-
-			peerName := <-Network.GetReceiveCh()
-
-			hostName := ctx.Value("hostname").(string)
-
-			err = Network.Send(ctx, hostName, targetAddr)
-
-			if err != nil {
-				done <- FromErrStr("Pair error with %s | %s: %w", targetAddr, peerName, err)
-				return
-			}
-
-			//done <- FromSuccess("Peer with address %s is successfully paired", nil, targetAddr.String())
+			done <- FromSuccess("Target client on address %s is successfully paired", nil, args[0])
 
 		},
-		), 2*time.Second),
+		), 10*time.Second),
 	)
-
-var Registry *file.FileRegistry[cvrdt.CvRDTState] = file.CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
-var Network *p2p.TCPLayer[string] = p2p.NewTCPTransport[string]()
