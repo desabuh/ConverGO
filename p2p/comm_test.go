@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -71,15 +72,15 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 		},
 	)
 
-	encDec := NewMatchingEncDec(JsonEncoder[Event]{}, JsonDecoder[Event]{})
+	encDec := NewCodec(JsonEncoder[Event]{}, JsonDecoder[Event]{})
 
 	var client = NewTCPTransport[Event]()
 	var server = NewTCPTransport[Event]()
 
 	defer server.Shutdown()
 
-	client.SetEncoderDecoder(encDec)
-	server.SetEncoderDecoder(encDec)
+	client.SetCodec(encDec)
+	server.SetCodec(encDec)
 
 	go server.ListenFor(addr)
 
@@ -111,61 +112,54 @@ func TestTCPReadMsgFromConnection(t *testing.T) {
 }
 
 func TestTransportWithHandshake(t *testing.T) {
-	encDec := NewMatchingEncDec(JsonEncoder[PeerHostInfo]{}, JsonDecoder[PeerHostInfo]{})
 
-	localHostInfoA := PeerHostInfo{
-		Id:      "1",
-		Name:    "A",
-		Address: "localhost:8081",
-	}
+	idA := "1"
+	nameA := "A"
+	addressA := "localhost:8081"
 
-	addr1, err := net.ResolveTCPAddr("tcp", localHostInfoA.Address)
+	idB := "2"
+	nameB := "B"
+	addressB := "localhost:8082"
 
-	require.Nil(t, err, "Address A should be valid not "+addr1.String())
+	idC := "3"
+	nameC := "C"
+	addressC := "localhost:8083"
 
-	localHostInfoB := PeerHostInfo{
-		Id:      "2",
-		Name:    "B",
-		Address: "localhost:8082",
-	}
+	localhostInfoA, err := CreateNewHostInfo(idA, nameA, addressA)
 
-	addr2, err := net.ResolveTCPAddr("tcp", localHostInfoB.Address)
+	require.Nil(t, err, "Address A should be valid not "+addressA)
 
-	require.Nil(t, err, "Address B should be valid not "+addr2.String())
+	localhostInfoB, err := CreateNewHostInfo(idB, nameB, addressB)
 
-	localHostInfoC := PeerHostInfo{
-		Id:      "3",
-		Name:    "C",
-		Address: "localhost:8083",
-	}
+	require.Nil(t, err, "Address B should be valid not "+addressB)
 
-	addr3, err := net.ResolveTCPAddr("tcp", localHostInfoC.Address)
+	localhostInfoC, err := CreateNewHostInfo(idC, nameC, addressC)
 
-	require.Nil(t, err, "Address C should be valid not "+addr3.String())
+	require.Nil(t, err, "Address C should be valid not "+addressC)
 
-	var hostA = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoA, encDec))
-	var hostB = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoB, encDec))
-	var hostC = NewTCPTransportWithShake[Event](GetNewHostExhanger(localHostInfoC, encDec))
+	var hostA = NewTCPTransportWithHostExhange[PeerHostInfo](localhostInfoA, NewJsonCodec[PeerHostInfo]())
+	var hostB = NewTCPTransportWithHostExhange[PeerHostInfo](localhostInfoB, NewJsonCodec[PeerHostInfo]())
+	var hostC = NewTCPTransportWithHostExhange[PeerHostInfo](localhostInfoC, NewJsonCodec[PeerHostInfo]())
 
-	go hostA.ListenFor(addr1)
+	go hostA.ListenFor(localhostInfoA.Address)
 
-	go hostB.ListenFor(addr2)
+	go hostB.ListenFor(localhostInfoB.Address)
 
-	go hostC.ListenFor(addr3)
+	go hostC.ListenFor(localhostInfoC.Address)
 
 	time.Sleep(1 * time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	err = hostA.Add(ctx, addr2)
+	err = hostA.Add(ctx, localhostInfoB.Address)
 
 	require.Nil(t, err, "Peer B should be successfully added")
 
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = hostA.Add(ctx, addr3)
+	err = hostA.Add(ctx, localhostInfoC.Address)
 
 	require.Nil(t, err, "Peer C should be successfully added")
 
@@ -173,7 +167,8 @@ func TestTransportWithHandshake(t *testing.T) {
 	require.True(t, len(hostB.peers) == 1)
 	require.True(t, len(hostC.peers) == 1)
 
-	hostA.removePeer(addr2)
+	fmt.Printf("FF localhostInfoB.Address: %v\n", localhostInfoB.Address)
+	hostA.removePeer(localhostInfoB.Address)
 
 	time.Sleep(1 * time.Second)
 

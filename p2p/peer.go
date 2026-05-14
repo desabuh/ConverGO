@@ -109,78 +109,6 @@ func (t *TCPPeer) Receive(ctx context.Context) (<-chan []byte, <-chan error) {
 	return t.msgCh, t.errCh
 }
 
-// func (t *TCPPeer) Receive(ctx context.Context) (<-chan []byte, <-chan error) {
-// 	msgCh := make(chan []byte, 16)
-// 	errCh := make(chan error, 1)
-
-// 	var deadline time.Time
-
-// 	if ctxDeadline, ok := ctx.Deadline(); ok {
-// 		deadline = ctxDeadline
-// 	} else {
-// 		//deadline = time.Now().Add(defaultReadTimeout)
-// 	}
-
-// 	_ = t.Conn.SetReadDeadline(deadline)
-
-// 	go func() {
-// 		defer close(msgCh)
-// 		defer close(errCh)
-
-// 		buf := make([]byte, 1024)
-
-// 		cancelDone := make(chan struct{})
-
-// 		go func() {
-// 			select {
-// 			case <-ctx.Done():
-// 				_ = t.Conn.SetReadDeadline(time.Now())
-// 			case <-cancelDone:
-// 			}
-// 		}()
-
-// 		for {
-// 			n, err := t.Conn.Read(buf)
-// 			if err != nil {
-// 				if _, ok := err.(net.Error); ok {
-// 					select {
-// 					case <-ctx.Done():
-// 						errCh <- ctx.Err()
-// 						close(cancelDone)
-// 						return
-// 					default:
-// 						errCh <- err
-// 						close(cancelDone)
-// 						return
-// 					}
-// 				}
-
-// 				if err == io.EOF {
-// 					close(cancelDone)
-// 					return
-// 				}
-
-// 				errCh <- err
-// 				continue
-// 			}
-
-// 			msg := make([]byte, n)
-// 			copy(msg, buf[:n])
-
-// 			select {
-// 			case msgCh <- msg:
-// 			case <-ctx.Done():
-// 				errCh <- ctx.Err()
-// 				close(cancelDone)
-// 				return
-// 			}
-// 		}
-// 	}()
-
-// 	return msgCh, errCh
-
-// }
-
 func (t *TCPPeer) readLoop(ctx context.Context) {
 	defer close(t.msgCh)
 	defer close(t.errCh)
@@ -216,6 +144,7 @@ func (t *TCPPeer) readLoop(ctx context.Context) {
 			}
 
 			if err == io.EOF {
+				t.errCh <- err
 				close(cancelDone)
 				return
 			}
