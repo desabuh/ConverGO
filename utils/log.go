@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"io"
 	"sync"
 )
@@ -39,4 +40,10 @@ func (l *MutexLogger) Log(w io.Writer, fn func(io.Writer)) {
 	defer m.Unlock()
 
 	fn(w)
+}
+
+func (l *MutexLogger) NlLog(w io.Writer, content string, args ...any) {
+	l.Log(w, func(w io.Writer) {
+		fmt.Fprintln(w, fmt.Sprintf(content, args...))
+	})
 }

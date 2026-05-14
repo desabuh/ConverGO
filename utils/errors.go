@@ -26,3 +26,27 @@ func (e *HandshakeError) Error() string {
 func (e *HandshakeError) Unwrap() error {
 	return e.Err
 }
+
+type endpointData interface{ Format() string }
+
+type TCPTransportError struct {
+	failPeer  endpointData
+	otherPeer endpointData
+
+	isErrorLocal bool
+
+	Err error
+}
+
+func (e *TCPTransportError) Error() string {
+
+	if e.isErrorLocal {
+		return fmt.Sprintf("TCP Transport local error from %s towards remote %s: %v", e.failPeer.Format(), e.otherPeer.Format(), e.Err)
+	} else {
+		return fmt.Sprintf("TCP Transport remote error from %s towards local %s: %v", e.failPeer.Format(), e.otherPeer.Format(), e.Err)
+	}
+}
+
+func (e *TCPTransportError) Unwrap() error {
+	return e.Err
+}
