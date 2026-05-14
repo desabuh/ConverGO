@@ -16,19 +16,15 @@ type StringFileContext[M utils.Clonable[M]] struct {
 // The exposed state R can o cannot (isStateTracked parameter) be continously observed by polling and dumped into the file
 // The internal M state should be Clonable for external exposure reasons
 type FileContext[M utils.Clonable[M], R any] struct {
-	siteId         string
-	domain         string
 	localPath      string
 	metaState      utils.ObservableState[M, R]
 	isStateTracked bool
 	poller         StatePollingDumper[R]
 }
 
-func GetNewFileContext[M utils.Clonable[M]](siteId string, domain string, localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *StringFileContext[M] {
+func GetNewFileContext[M utils.Clonable[M]](localpath string, metaState utils.ObservableState[M, string], file *os.File, pollingInterval time.Duration) *StringFileContext[M] {
 	return &StringFileContext[M]{
 		FileContext: &FileContext[M, string]{
-			siteId:         siteId,
-			domain:         domain,
 			localPath:      localpath,
 			metaState:      metaState,
 			isStateTracked: false,
@@ -59,17 +55,13 @@ func (fc *FileContext[M, R]) UpdateState(internalState M) error {
 func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 
 	return FileContextInfo[M]{
-		siteId:        fc.siteId,
-		domain:        fc.domain,
-		localPath:     fc.localPath,
+		LocalPath:     fc.localPath,
 		ReadOnlyState: fc.metaState.GetState().Clone(),
 	}
 }
 
 // a readonly version of the FileContext general info and synchronized readonly state
 type FileContextInfo[M any] struct {
-	siteId        string
-	domain        string
-	localPath     string
+	LocalPath     string
 	ReadOnlyState M
 }

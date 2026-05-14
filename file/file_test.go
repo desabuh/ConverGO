@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
+	"github.com/desabuh/convergo/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,7 +21,7 @@ func TestNewFileContextOperation(t *testing.T) {
 		log.Fatalf("Failed to create temp file: %v", err)
 	}
 
-	fileCtx := GetNewFileContext(SITE_ID, "TEST_DOMAIN", "path", cvrdt.NewWootCvrdtWithView(SITE_ID), tmpFile, 100*time.Millisecond)
+	fileCtx := GetNewFileContext("path", cvrdt.NewWootCvrdtWithView(SITE_ID), tmpFile, 100*time.Millisecond)
 
 	fileCtx.TrackState()
 
@@ -65,12 +66,11 @@ func TestNewFileContextOperation(t *testing.T) {
 
 func TestNewFileRegistry(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain/"
 	const FILE_NAME = "file_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	var registry *FileRegistry[cvrdt.CvRDTState] = CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	var registry *FileRegistry[cvrdt.CvRDTState] = CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -88,18 +88,16 @@ func TestNewFileRegistry(t *testing.T) {
 
 	info, err := registry.GetFileCtxInfo(FILE_NAME)
 	assert.Nil(t, err, "Should be able to get file context info")
-	assert.Equal(t, DOMAIN, info.domain)
-	assert.Equal(t, FILE_NAME, info.localPath)
+	assert.Equal(t, FILE_NAME, info.LocalPath)
 }
 
 func TestFileRegistryCreateDuplicateFile(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_duplicate/"
 	const FILE_NAME = "duplicate.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -117,13 +115,12 @@ func TestFileRegistryCreateDuplicateFile(t *testing.T) {
 func TestFileRegistryUpdateFileCtx(t *testing.T) {
 	const SITE_ID_1 = "1"
 	const SITE_ID_2 = "2"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_update/"
 	const FILE_NAME = "update_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 	const CONTENT = "Hello"
 
-	registry := CreateNewWootFileRegistry(SITE_ID_1, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID_1, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -142,7 +139,7 @@ func TestFileRegistryUpdateFileCtx(t *testing.T) {
 	)
 
 	info.ReadOnlyState = newState
-	err = registry.UpdateFileCtx(info)
+	err = utils.Second(registry.UpdateFileCtx(info))
 	assert.Nil(t, err)
 
 	time.Sleep(200 * time.Millisecond)
@@ -154,33 +151,32 @@ func TestFileRegistryUpdateFileCtx(t *testing.T) {
 
 func TestFileRegistryUpdateNonExistentFile(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_update_fail/"
 
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
+
 	t.Cleanup(func() {
+		registry.RemoveFileCtx("non_existent.txt")
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
-
 	info := FileContextInfo[cvrdt.CvRDTState]{
-		domain:        DOMAIN,
-		localPath:     "non_existent.txt",
+		LocalPath:     "non_existent.txt",
 		ReadOnlyState: cvrdt.GetNewStateFromOp(),
 	}
 
-	err := registry.UpdateFileCtx(info)
-	assert.NotNil(t, err, "Updating non-existent file should fail")
+	wasCreated, err := registry.UpdateFileCtx(info)
+	assert.Nil(t, err, "Update should work also with nonexisting contexts")
+	assert.True(t, wasCreated, "A new context should be created")
 }
 
 func TestFileRegistryGetFileCtxInfo(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_get/"
 	const FILE_NAME = "get_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -193,21 +189,19 @@ func TestFileRegistryGetFileCtxInfo(t *testing.T) {
 
 	info, err := registry.GetFileCtxInfo(FILE_NAME)
 	assert.Nil(t, err)
-	assert.Equal(t, DOMAIN, info.domain)
-	assert.Equal(t, FILE_NAME, info.localPath)
+	assert.Equal(t, FILE_NAME, info.LocalPath)
 	assert.NotNil(t, info.ReadOnlyState)
 }
 
 func TestFileRegistryGetNonExistentFileCtxInfo(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_get_fail/"
 
 	t.Cleanup(func() {
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	_, err := registry.GetFileCtxInfo("non_existent.txt")
 	assert.NotNil(t, err, "Getting non-existent file should fail")
@@ -215,12 +209,11 @@ func TestFileRegistryGetNonExistentFileCtxInfo(t *testing.T) {
 
 func TestFileRegistryRemoveFileCtx(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_remove/"
 	const FILE_NAME = "remove_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		time.Sleep(50 * time.Millisecond)
@@ -246,14 +239,13 @@ func TestFileRegistryRemoveFileCtx(t *testing.T) {
 
 func TestFileRegistryRemoveNonExistentFileCtx(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_remove_fail/"
 
 	t.Cleanup(func() {
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	err := registry.RemoveFileCtx("non_existent.txt")
 	assert.Nil(t, err, "Removing non-existent file should not error")
@@ -261,11 +253,10 @@ func TestFileRegistryRemoveNonExistentFileCtx(t *testing.T) {
 
 func TestFileRegistryGetAllFileCtxInfo(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_getall/"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		fileNames := []string{"file1.txt", "file2.txt", "file3.txt"}
@@ -291,19 +282,17 @@ func TestFileRegistryGetAllFileCtxInfo(t *testing.T) {
 	for _, fileName := range fileNames {
 		info, exists := allInfo[fileName]
 		assert.True(t, exists, "File "+fileName+" should be in map")
-		assert.Equal(t, DOMAIN, info.domain)
-		assert.Equal(t, fileName, info.localPath)
+		assert.Equal(t, fileName, info.LocalPath)
 	}
 }
 
 func TestFileRegistryMultipleOperations(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_multi/"
 	const FILE_NAME = "multi_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -324,7 +313,7 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 		mergedState := currentInfo.ReadOnlyState.Merge(newState)
 
 		currentInfo.ReadOnlyState = mergedState
-		err = registry.UpdateFileCtx(currentInfo)
+		err = utils.Second(registry.UpdateFileCtx(currentInfo))
 		assert.Nil(t, err)
 	}
 
@@ -344,13 +333,12 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 
 func TestFileRegistryConcurrentAccess(t *testing.T) {
 	const SITE_ID = "1"
-	const DOMAIN = "TEST_DOMAIN"
 	const DOMAIN_PATH = "./test_domain_concurrent/"
 	const FILE_NAME = "concurrent_test.txt"
 	const POLLING_INTERVAL = 100 * time.Millisecond
 	const NUM_GOROUTINES = 10
 
-	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN, DOMAIN_PATH)
+	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
 		registry.RemoveFileCtx(FILE_NAME)
@@ -365,9 +353,8 @@ func TestFileRegistryConcurrentAccess(t *testing.T) {
 
 	for i := 0; i < NUM_GOROUTINES; i++ {
 		go func() {
-			info, err := registry.GetFileCtxInfo(FILE_NAME)
+			_, err := registry.GetFileCtxInfo(FILE_NAME)
 			assert.Nil(t, err)
-			assert.Equal(t, DOMAIN, info.domain)
 			done <- true
 		}()
 	}

@@ -10,17 +10,13 @@ import (
 )
 
 type FileRegistry[M utils.Clonable[M]] struct {
-	domain              string
-	siteId              string
 	localDomainPrefix   string
 	newEmptyCtxSupplier func() utils.ObservableState[M, string]
 	fileContexts        map[string]*StringFileContext[M]
 }
 
-func CreateNewWootFileRegistry(siteId string, domain string, domainLocalPrefix string) *FileRegistry[cvrdt.CvRDTState] {
+func CreateNewWootFileRegistry(siteId string, domainLocalPrefix string) *FileRegistry[cvrdt.CvRDTState] {
 	return CreateNewCRDTFileRegistry(
-		siteId,
-		domain,
 		domainLocalPrefix,
 		func() utils.ObservableState[cvrdt.CvRDTState, string] {
 			return cvrdt.NewWootCvrdtWithView(siteId)
@@ -28,10 +24,8 @@ func CreateNewWootFileRegistry(siteId string, domain string, domainLocalPrefix s
 	)
 }
 
-func CreateNewCRDTFileRegistry(siteId string, domain string, domainLocalPrefix string, newCtxSupplier func() utils.ObservableState[cvrdt.CvRDTState, string]) *FileRegistry[cvrdt.CvRDTState] {
+func CreateNewCRDTFileRegistry(domainLocalPrefix string, newCtxSupplier func() utils.ObservableState[cvrdt.CvRDTState, string]) *FileRegistry[cvrdt.CvRDTState] {
 	return &FileRegistry[cvrdt.CvRDTState]{
-		domain:              domain,
-		siteId:              siteId,
 		localDomainPrefix:   domainLocalPrefix,
 		newEmptyCtxSupplier: newCtxSupplier,
 		fileContexts:        make(map[string]*StringFileContext[cvrdt.CvRDTState]),
@@ -59,7 +53,7 @@ func (fr *FileRegistry[M]) CreateFileCtx(fileName string, pollingInterval time.D
 		return err
 	}
 
-	newCtx := GetNewFileContext(fr.siteId, fr.domain, fileName, fr.newEmptyCtxSupplier(), file, pollingInterval)
+	newCtx := GetNewFileContext(fileName, fr.newEmptyCtxSupplier(), file, pollingInterval)
 
 	newCtx.TrackState()
 
@@ -69,16 +63,32 @@ func (fr *FileRegistry[M]) CreateFileCtx(fileName string, pollingInterval time.D
 
 }
 
-func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) error {
-	ctx, err := fr.getFileCtx(fileCtx.localPath)
+func (fr *FileRegistry[M]) IfCtxExists(fileName string) bool {
+	_, err := fr.getFileCtx(fileName)
+	return err == nil
+}
+
+// boolean value is for newly created fileContext
+func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (bool, error) {
+	ctx, err := fr.getFileCtx(fileCtx.LocalPath)
+
+	var wasCtxNewlyCreated bool = false
 
 	if err != nil {
-		return err
+		err := fr.CreateFileCtx(fileCtx.LocalPath, 3*time.Second)
+
+		wasCtxNewlyCreated = true
+
+		if err != nil {
+			return wasCtxNewlyCreated, err
+		}
 	}
+
+	ctx, _ = fr.getFileCtx(fileCtx.LocalPath)
 
 	err = ctx.UpdateState(fileCtx.ReadOnlyState)
 
-	return err
+	return wasCtxNewlyCreated, err
 
 }
 
@@ -123,6 +133,11 @@ func (fr *FileRegistry[M]) GetAllFileCtxInfo() map[string]FileContextInfo[M] { /
 		result[fileName] = ctx.GetStateCopy()
 	}
 	return result
+}
+
+func (fr *FileRegistry[M]) GetFileRegistryInfo() []FileContextInfo[M] {
+	return utils.Values(fr.GetAllFileCtxInfo())
+
 }
 
 func (fr *FileRegistry[M]) getFileCtx(fileName string) (*StringFileContext[M], error) {
