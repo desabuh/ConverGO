@@ -1,0 +1,7 @@
+init _
+wait 4000
+edit insert file.txt 0 Hi
+push all
+wait 4000
+read file.txt
+wait 8000

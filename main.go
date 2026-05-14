@@ -105,8 +105,6 @@ func main() {
 
 	command.CheckCommand(ctx, f, os.Stdout, command.CommandRegistry)
 
-	fmt.Println("DSADASD")
-
 	//<-sigChan
 	//time.Sleep(1 * time.Second)
 

@@ -1,0 +1,8 @@
+init _
+edit insert file.txt 0 User
+wait 2000
+pair peer2:8086
+push all
+wait 4000
+read file.txt
+wait 8000
