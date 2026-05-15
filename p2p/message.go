@@ -1,9 +1,8 @@
 package p2p
 
 import (
-	"encoding/json"
-
-	"github.com/google/uuid"
+	"fmt"
+	"net"
 )
 
 type PeerMessage = Envelope[PeerMetadata]
@@ -14,54 +13,53 @@ type PeerMetadata struct {
 	PeerHostInfo
 }
 
-type Message struct {
-	Name string
-	Args map[string]any
-	Time int64
-}
-
-type UserData struct {
-	Id       uuid.UUID
-	Username string
-}
-
-type Encoder[I any] interface {
-	Encode(msg I) ([]byte, error)
-}
-
-type Decoder[O any] interface {
-	Decode(data []byte) (O, error)
-}
-
-type Codec[ED any] interface {
-	Encoder[ED]
-	Decoder[ED]
-}
-
-func NewCodec[T any](encoder Encoder[T], decoder Decoder[T]) Codec[T] {
-	return struct {
-		Encoder[T]
-		Decoder[T]
-	}{
-		Encoder: encoder,
-		Decoder: decoder,
+func GetPeerMetadata(name string, isError string, info PeerHostInfo) PeerMetadata {
+	return PeerMetadata{
+		MessageName:  name,
+		isError:      isError,
+		PeerHostInfo: info,
 	}
 }
 
-func NewJsonCodec[T any]() Codec[T] {
-	return NewCodec(JsonEncoder[T]{}, JsonDecoder[T]{})
+type PeerHostInfo struct {
+	Id string
+	UserData
 }
 
-type JsonEncoder[T any] struct{}
-
-func (e JsonEncoder[T]) Encode(data T) ([]byte, error) {
-	return json.Marshal(data)
+func (info PeerHostInfo) isPeerClosed() bool {
+	return info.Address == nil
 }
 
-type JsonDecoder[T any] struct{}
+func (info PeerHostInfo) Format() string {
 
-func (d JsonDecoder[T]) Decode(data []byte) (T, error) {
-	var msg T
-	err := json.Unmarshal(data, &msg)
-	return msg, err
+	var addr = info.Address.String()
+
+	if info.isPeerClosed() {
+		addr = "Vacant"
+	}
+
+	return fmt.Sprintf("%s_%s_%s", info.Id, info.Name, addr)
+}
+
+func CreateNewHostInfo(id string, name string, address string) (PeerHostInfo, error) {
+
+	netAddr, err := net.ResolveTCPAddr("tcp", address)
+
+	if err != nil {
+		return PeerHostInfo{}, fmt.Errorf("Cannot create a new host info: %v", err)
+	}
+
+	return PeerHostInfo{
+		Id: id,
+		UserData: UserData{
+			Name:    name,
+			Address: netAddr,
+		},
+	}, nil
+
+}
+
+type UserData struct {
+	Name    string
+	Address *net.TCPAddr
 }
