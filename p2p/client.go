@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
 	"github.com/desabuh/convergo/file"
@@ -14,14 +15,14 @@ import (
 // - D: the data to send over the transport layer
 // - T: the identification of entities that communicates over the transport
 // - M: the state type managed into the registry
-type Client[I comparable, D any, T comparable, M utils.Clonable[M]] struct {
+type Client[I comparable, D any, T comparable, M utils.Clonable[M], R any] struct {
 	Id        I
-	transport Transport[D, T]
+	transport Transport[D, T, R]
 	Registry  file.FileRegistry[M]
 }
 
 // a client peer with CvRDT capabilities
-type CvrdtNetClient Client[PeerHostInfo, PeerMessage, net.Addr, cvrdt.CvRDTState] //to do, use PeerHostInfo instead of net.Addr
+type CvrdtNetClient Client[PeerHostInfo, PeerMessage, net.Addr, cvrdt.CvRDTState, PeerMetadata] //to do, use PeerHostInfo instead of net.Addr
 
 func (c *CvrdtNetClient) BroadcastRegistryOverTransport(ctx context.Context) error {
 
@@ -55,6 +56,20 @@ func (c *CvrdtNetClient) WaitForMessages(ctx context.Context) {
 
 func (c *CvrdtNetClient) parseRequests(message PeerMessage) {
 	switch message.Key.MessageName {
+	case "PING_HANDSHAKE_SUCCESS":
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		utils.Logger.NlLog(os.Stdout, "CvrdtClient %s was paired with success!, broadcast current state to everyone:", message.Key.PeerHostInfo.Format())
+
+		err := c.BroadcastRegistryOverTransport(ctx)
+
+		if err != nil {
+			utils.Logger.NlLog(os.Stdout, "Push broadcasting failure: %v", err)
+		} else {
+			utils.Logger.NlLog(os.Stdout, "Push broadcasting was a success!")
+		}
+
 	case "PUSH":
 
 		utils.Logger.NlLog(os.Stdout, "PUSH request received from %s", message.Key.PeerHostInfo.Format())
@@ -120,6 +135,10 @@ func CreateNewTCPWootBasedClient(peerInfo PeerHostInfo, domainPath string, hands
 
 	var network *TCPLayer[PeerMessage] = NewTCPTransportWithHostExhange[PeerMessage](peerInfo, handshakeCodec)
 	network.SetCodec(codec)
+
+	var emptyEnvFactoryFunc = func(x PeerMetadata) Envelope[PeerMetadata] { return GetEmptyEnvelope[PeerMetadata](x) }
+
+	network.SetLocalPingFactory(emptyEnvFactoryFunc)
 
 	return &CvrdtNetClient{
 		Id:        peerInfo,

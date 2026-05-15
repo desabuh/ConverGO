@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 
@@ -39,43 +38,6 @@ func NewHandshakeError(step HostExhangerStep, address string, err error) error {
 		Target: address,
 		Err:    err,
 	}
-}
-
-type PeerHostInfo struct {
-	Id      string
-	Name    string
-	Address *net.TCPAddr
-}
-
-func CreateNewHostInfo(id string, name string, address string) (PeerHostInfo, error) {
-
-	netAddr, err := net.ResolveTCPAddr("tcp", address)
-
-	if err != nil {
-		return PeerHostInfo{}, fmt.Errorf("Cannot create a new host info: %v", err)
-	}
-
-	return PeerHostInfo{
-		Id:      id,
-		Name:    name,
-		Address: netAddr,
-	}, nil
-
-}
-
-func (info PeerHostInfo) isPeerClosed() bool {
-	return info.Address == nil
-}
-
-func (info PeerHostInfo) Format() string {
-
-	var addr = info.Address.String()
-
-	if info.isPeerClosed() {
-		addr = "Vacant"
-	}
-
-	return fmt.Sprintf("%s_%s_%s", info.Id, info.Name, addr)
 }
 
 type TCPHostExchanger struct {

@@ -66,7 +66,8 @@ func (s *ShutDownFlag) IsClosed() bool {
 // - GetReceiveCh: Returns a channel for receiving incoming data.
 // - Shutdown: Gracefully shuts down the transport mechanism.
 // - SetCodec: Sets the encoder/decoder for serializing and deserializing data.
-type Transport[D any, T comparable] interface {
+// - SetLocalPingFactory: provides a way for the transport to locally construct a message D from an any value R without redirecting an explicit receiving message
+type Transport[D any, T comparable, R any] interface {
 	ListenFor(id T) error
 	Send(ctx context.Context, data D, target T) error
 	Broadcast(ctx context.Context, data D) error
@@ -75,6 +76,7 @@ type Transport[D any, T comparable] interface {
 	GetReceiveCh() <-chan D
 	Shutdown() error
 	SetCodec(encDec Codec[D])
+	SetLocalPingFactory(msgFun func(input R) D)
 }
 
 type TCPLayer[D any] struct {
@@ -82,6 +84,9 @@ type TCPLayer[D any] struct {
 	Address  string
 	shutdown Flag
 	msgCh    chan D
+
+	localMsgFactory func(metadata PeerMetadata) D
+	isFactorySet    bool
 
 	handshaker HandShaker[net.Conn]
 
@@ -117,6 +122,11 @@ func NewTCPTransportWithHostExhange[D any](info PeerHostInfo, codec Codec[PeerHo
 
 func (t *TCPLayer[D]) SetCodec(encDec Codec[D]) {
 	t.endDec = encDec
+}
+
+func (t *TCPLayer[D]) SetLocalPingFactory(factory func(metadata PeerMetadata) D) {
+	t.localMsgFactory = factory
+	t.isFactorySet = true
 }
 
 func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
@@ -190,6 +200,11 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 			ctx, cancel := context.WithTimeout(context.Background(), INCOMING_HANDSHAKE_TIMEOUT)
 			defer cancel()
 			peer, err := t.handshaker.Shake(ctx, conn, Receiver)
+
+			//var data D = MsgMan.getMessage("PUSH", isSuccess = True, args)
+			// exit, broadcast
+			//t.Send()
+			//t.Send(ctx, nil, peer.GetPeerInfo().Address)
 
 			if err != nil {
 				fmt.Printf("Incoming peer connection request failed: %v", err)
@@ -299,6 +314,10 @@ func (t *TCPLayer[D]) Add(ctx context.Context, target net.Addr) error {
 		defer can()
 		t.handlePeer(cttx, p)
 	}(peer)
+
+	if t.isFactorySet {
+		t.msgCh <- t.localMsgFactory(GetPeerMetadata("PING_HANDSHAKE_SUCCESS", "", peer.GetPeerInfo()))
+	}
 
 	return nil
 }
