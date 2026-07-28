@@ -10,10 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/desabuh/convergo/log"
 	"github.com/desabuh/convergo/utils"
 )
 
-const INCOMING_HANDSHAKE_TIMEOUT = 10 * time.Second
+const (
+	INCOMING_HANDSHAKE_TIMEOUT = 10 * time.Second
+	OUTGOING_HANDSHAKE_TIMEOUT = 10 * time.Second
+)
+
+var ErrPeerAlreadyExists = errors.New("Peer already Exists")
+var ErrPeerDoesNotExists = errors.New("Peer does not exists")
 
 var DEFAULT_OUT_STREAM = os.Stdout
 
@@ -63,29 +70,39 @@ func (s *ShutDownFlag) IsClosed() bool {
 // - Send: Sends the specified data to the given target.
 // - Add: Adds a target to the list of communication targets.
 // - Remove: Removes a target from the list of communication targets.
+// - GetTargets: Return all current targets
 // - GetReceiveCh: Returns a channel for receiving incoming data.
 // - Shutdown: Gracefully shuts down the transport mechanism.
 // - SetCodec: Sets the encoder/decoder for serializing and deserializing data.
-// - SetLocalPingFactory: provides a way for the transport to locally construct a message D from an any value R without redirecting an explicit receiving message
+// - SetLocalMsgFactory: provides a way for the transport to locally construct a message D from an any value R without redirecting an explicit receiving message
 type Transport[D any, T comparable, R any] interface {
+	CommunicationPipe[D, T]
 	ListenFor(id T) error
-	Send(ctx context.Context, data D, target T) error
-	Broadcast(ctx context.Context, data D) error
 	Add(ctx context.Context, target T) error
 	Remove(target T) error
-	GetReceiveCh() <-chan D
+	GetTargets() map[T]struct{}
 	Shutdown() error
 	SetCodec(encDec Codec[D])
-	SetLocalPingFactory(msgFun func(input R) D)
+	SetLocalMsgFactory(msgFun func(input R, payload any) (D, error))
+}
+
+// A generic communication channel where data can be sent or received from
+// - Send: Sends the specified data to the given target.
+// - Broadcast: Send data to all registered target
+// - GetReceiveCh: Returns a channel for receiving incoming data.
+type CommunicationPipe[D any, T comparable] interface {
+	Send(ctx context.Context, data D, target T) error
+	Broadcast(ctx context.Context, data D) error
+	GetReceiveCh() <-chan D
 }
 
 type TCPLayer[D any] struct {
 	listener net.Listener
-	Address  string
+	LocalID  PeerHostInfo
 	shutdown Flag
 	msgCh    chan D
 
-	localMsgFactory func(metadata PeerMetadata) D
+	localMsgFactory func(metadata PeerMetadata, payload any) (D, error)
 	isFactorySet    bool
 
 	handshaker HandShaker[net.Conn]
@@ -93,7 +110,7 @@ type TCPLayer[D any] struct {
 	endDec Codec[D]
 
 	mu    sync.Mutex
-	peers map[net.Addr]Peer
+	peers map[PeerHostInfo]Peer
 }
 
 // create a simple transport layer with no handshake measure
@@ -109,27 +126,26 @@ func NewTCPTransportWithShake[D any](handshaker HandShaker[net.Conn]) *TCPLayer[
 			shutdownCh: make(chan struct{}),
 		},
 		handshaker: handshaker,
-		peers:      make(map[net.Addr]Peer),
+		peers:      make(map[PeerHostInfo]Peer),
 		msgCh:      make(chan D),
 	}
 }
 
 // create a transport layer with an host exhange handshaker
-func NewTCPTransportWithHostExhange[D any](info PeerHostInfo, codec Codec[PeerHostInfo]) *TCPLayer[D] {
-	return NewTCPTransportWithShake[D](GetNewHostExhanger(info, codec))
-
+func NewTCPTransportWithHostExhange(info PeerHostInfo, codec Codec[PeerMessage]) *TCPLayer[PeerMessage] {
+	return NewTCPTransportWithShake[PeerMessage](GetNewHostExhanger(info, codec))
 }
 
 func (t *TCPLayer[D]) SetCodec(encDec Codec[D]) {
 	t.endDec = encDec
 }
 
-func (t *TCPLayer[D]) SetLocalPingFactory(factory func(metadata PeerMetadata) D) {
+func (t *TCPLayer[D]) SetLocalMsgFactory(factory func(metadata PeerMetadata, payload any) (D, error)) {
 	t.localMsgFactory = factory
 	t.isFactorySet = true
 }
 
-func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
+func (t *TCPLayer[D]) Send(ctx context.Context, data D, target PeerHostInfo) error {
 	byteMsg, err := t.endDec.Encode(data)
 
 	if err != nil {
@@ -137,7 +153,7 @@ func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
 	}
 
 	if !t.isPeerPresent(target) {
-		return fmt.Errorf("target peer %v already exists", target)
+		return ErrPeerDoesNotExists //fmt.Errorf("target peer %s does not exists", target.Format())
 	}
 
 	peer := t.peers[target]
@@ -153,29 +169,46 @@ func (t *TCPLayer[D]) Send(ctx context.Context, data D, target net.Addr) error {
 
 func (t *TCPLayer[D]) Broadcast(ctx context.Context, data D) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if len(t.peers) == 0 {
-		return fmt.Errorf("canno broadcast, no peers are registered")
+		t.mu.Unlock()
+		return fmt.Errorf("cannot broadcast, no peers are registered")
 	}
 
+	targets := make([]PeerHostInfo, 0, len(t.peers))
 	for addr := range t.peers {
+		targets = append(targets, addr)
+	}
+
+	t.mu.Unlock()
+
+	for i, addr := range targets {
 		err := t.Send(ctx, data, addr)
 
 		if err != nil {
-			return err
+			return &utils.BroadcastError[PeerHostInfo]{
+				Targets:     targets,
+				FailedIndex: i,
+				Cause:       err,
+			}
 		}
 	}
 
 	return nil
 }
 
-func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
+func (t *TCPLayer[D]) ListenFor(id PeerHostInfo) error {
 	var err error
 
-	t.Address = id.String()
+	_, err = net.ResolveTCPAddr("tcp", id.Address)
 
-	t.listener, err = net.Listen("tcp", t.Address)
+	if err != nil {
+		return fmt.Errorf("provided address %s was not valid", id.Address)
+	}
+
+	t.LocalID = id
+
+	t.listener, err = net.Listen("tcp", t.LocalID.Address)
 
 	if err != nil {
 		return fmt.Errorf("listening error: %s", err)
@@ -201,25 +234,28 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 			defer cancel()
 			peer, err := t.handshaker.Shake(ctx, conn, Receiver)
 
-			//var data D = MsgMan.getMessage("PUSH", isSuccess = True, args)
-			// exit, broadcast
-			//t.Send()
-			//t.Send(ctx, nil, peer.GetPeerInfo().Address)
-
 			if err != nil {
 				fmt.Printf("Incoming peer connection request failed: %v", err)
+				conn.Close()
 				continue
 			}
 
-			utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed incoming shake with %s", peer.GetPeerInfo().Format())
+			log.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed incoming shake with %s", peer.GetPeerInfo().Format())
 
-			t.addPeer(peer.GetPeerInfo().Address, peer)
+			t.addPeer(peer.GetPeerInfo(), peer)
 
 			ctx, cancel = context.WithCancel(context.Background())
 			go func(p Peer) {
 				defer cancel()
 				t.handlePeer(ctx, p)
 			}(peer)
+
+			if t.isFactorySet {
+				//t.msgCh <- t.localMsgFactory(GetPeerMetadata("PEER_CONNECTION_TOPIC", "", peer.GetPeerInfo()))
+				if env, err := t.localMsgFactory(GetPeerMetadata(PEER_CONNECTION, "", peer.GetPeerInfo()), nil); err == nil {
+					t.msgCh <- env
+				}
+			}
 		}
 	}()
 
@@ -232,8 +268,7 @@ func (t *TCPLayer[D]) ListenFor(id net.Addr) error {
 }
 
 func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
-	defer t.removePeer(p.GetPeerInfo().Address)
-	defer p.Close()
+	defer t.removePeer(p.GetPeerInfo())
 
 	peerMsgCh, peerErrCh := p.Receive(ctx)
 
@@ -256,14 +291,28 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 
 		case err, ok := <-peerErrCh:
 
-			if err != nil {
-				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Error received from peer %s: %v", p.GetPeerInfo().Format(), err)
+			if t.isFactorySet {
+				var loggingErr error
+
+				switch {
+				case !ok:
+					loggingErr = errors.New("connection forcibly closed")
+				case err != nil:
+					loggingErr = err
+				default:
+					loggingErr = errors.New("unknown peer error")
+				}
+
+				if env, err := t.localMsgFactory(GetPeerMetadata(PEER_EXIT, loggingErr.Error(), p.GetPeerInfo()), nil); err == nil {
+					t.msgCh <- env
+				}
+
+				// t.msgCh <- t.localMsgFactory(
+				// 	GetPeerMetadata("PEER_EXIT", loggingErr.Error(), p.GetPeerInfo()),
+				// )
 			}
 
-			if !ok {
-				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Connection forcibly closed from %s", p.GetPeerInfo().Format())
-				return
-			}
+			return
 
 		case <-ctx.Done():
 			return
@@ -273,6 +322,7 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 }
 
 func (t *TCPLayer[D]) connectTo(ctx context.Context, address string) (Peer, error) {
+
 	conn, err := net.Dial("tcp", address)
 
 	if err != nil {
@@ -286,22 +336,25 @@ func (t *TCPLayer[D]) connectTo(ctx context.Context, address string) (Peer, erro
 		return nil, fmt.Errorf("Connection closed: %w", err)
 	}
 
-	utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed outgoing shake with %s", peer.GetPeerInfo().Format())
+	log.Logger.NlLog(DEFAULT_OUT_STREAM, "Completed outgoing shake with %s", peer.GetPeerInfo().Format())
 
 	return peer, nil
 }
 
-func (t *TCPLayer[D]) Add(ctx context.Context, target net.Addr) error {
+func (t *TCPLayer[D]) Add(ctx context.Context, target PeerHostInfo) error {
 
-	if target.String() == t.Address {
-		return fmt.Errorf("Cannot connect to %s (same address as local listening address)", t.Address)
+	if target == t.LocalID {
+		return fmt.Errorf("Cannot connect to %s (same address as local listening address)", t.LocalID.Format())
 	}
 
 	if t.isPeerPresent(target) {
-		return fmt.Errorf("target peer %v already exists", target)
+		return ErrPeerAlreadyExists
 	}
 
-	peer, err := t.connectTo(ctx, target.String())
+	ctxT, cancel := context.WithTimeout(ctx, OUTGOING_HANDSHAKE_TIMEOUT)
+	defer cancel()
+
+	peer, err := t.connectTo(ctxT, target.Address)
 
 	if err != nil {
 		return err
@@ -309,23 +362,24 @@ func (t *TCPLayer[D]) Add(ctx context.Context, target net.Addr) error {
 
 	t.addPeer(target, peer)
 
-	cttx, can := context.WithCancel(context.Background())
-	go func(p Peer) {
-		defer can()
-		t.handlePeer(cttx, p)
-	}(peer)
-
 	if t.isFactorySet {
-		t.msgCh <- t.localMsgFactory(GetPeerMetadata("PING_HANDSHAKE_SUCCESS", "", peer.GetPeerInfo()))
+		//t.msgCh <- t.localMsgFactory(GetPeerMetadata("PEER_CONNECTION_TOPIC", "", peer.GetPeerInfo()))
+		if env, err := t.localMsgFactory(GetPeerMetadata(PEER_CONNECTION, "", peer.GetPeerInfo()), nil); err == nil {
+			t.msgCh <- env
+		}
 	}
+
+	go func(p Peer) {
+		t.handlePeer(ctx, p)
+	}(peer)
 
 	return nil
 }
 
-func (t *TCPLayer[D]) Remove(target net.Addr) error {
+func (t *TCPLayer[D]) Remove(target PeerHostInfo) error {
 
 	if !t.isPeerPresent(target) {
-		return fmt.Errorf("target peer %v does not exist", target)
+		return ErrPeerDoesNotExists
 	}
 
 	t.removePeer(target)
@@ -336,29 +390,45 @@ func (t *TCPLayer[D]) GetReceiveCh() <-chan D {
 	return t.msgCh
 }
 
+func (t *TCPLayer[D]) GetTargets() map[PeerHostInfo]struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	result := make(map[PeerHostInfo]struct{}, len(t.peers))
+
+	for hostInfo := range t.peers {
+		result[hostInfo] = struct{}{}
+	}
+
+	return result
+}
+
 func (t *TCPLayer[D]) Shutdown() error {
+
+	for addr := range t.peers {
+		t.removePeer(addr)
+	}
+
 	return t.shutdown.Close()
 }
 
-func (t *TCPLayer[D]) isPeerPresent(target net.Addr) bool {
+func (t *TCPLayer[D]) isPeerPresent(target PeerHostInfo) bool {
 	_, ok := t.peers[target]
 	return ok
 }
 
-func (t *TCPLayer[D]) addPeer(addr net.Addr, p Peer) {
+func (t *TCPLayer[D]) addPeer(addr PeerHostInfo, p Peer) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.peers[addr] = p
 }
 
-func (t *TCPLayer[D]) removePeer(addr net.Addr) {
+func (t *TCPLayer[D]) removePeer(addr PeerHostInfo) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	if peer, ok := t.peers[addr]; ok {
-
-		utils.Logger.NlLog(DEFAULT_OUT_STREAM, "Closing connection with %s peer...", peer.GetPeerInfo().Format())
 		peer.Close()
 
 		delete(t.peers, addr)
