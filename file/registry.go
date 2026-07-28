@@ -1,12 +1,21 @@
 package file
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
 	"github.com/desabuh/convergo/utils"
+)
+
+var (
+	FILE_CTX_NOT_FOUND = errors.New("file context not found")
+)
+
+const (
+	POLLING_INTERVAL = 3 * time.Second
 )
 
 type FileRegistry[M utils.Clonable[M]] struct {
@@ -63,11 +72,6 @@ func (fr *FileRegistry[M]) CreateFileCtx(fileName string, pollingInterval time.D
 
 }
 
-func (fr *FileRegistry[M]) IfCtxExists(fileName string) bool {
-	_, err := fr.getFileCtx(fileName)
-	return err == nil
-}
-
 // boolean value is for newly created fileContext
 func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (bool, error) {
 	ctx, err := fr.getFileCtx(fileCtx.LocalPath)
@@ -75,7 +79,7 @@ func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (bool, erro
 	var wasCtxNewlyCreated bool = false
 
 	if err != nil {
-		err := fr.CreateFileCtx(fileCtx.LocalPath, 3*time.Second)
+		err := fr.CreateFileCtx(fileCtx.LocalPath, POLLING_INTERVAL)
 
 		wasCtxNewlyCreated = true
 
@@ -95,7 +99,7 @@ func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (bool, erro
 func (fr *FileRegistry[M]) GetFileCtxInfo(fileName string) (FileContextInfo[M], error) { // fornisce i dati su un singolo file context readonly (per leggerli)
 	ctx, err := fr.getFileCtx(fileName)
 	if err != nil {
-		return FileContextInfo[M]{}, fmt.Errorf("file context not found")
+		return FileContextInfo[M]{}, err
 	}
 
 	return ctx.GetStateCopy(), nil
@@ -144,5 +148,5 @@ func (fr *FileRegistry[M]) getFileCtx(fileName string) (*StringFileContext[M], e
 	if ctx, exists := fr.fileContexts[fileName]; exists {
 		return ctx, nil
 	}
-	return &StringFileContext[M]{}, fmt.Errorf("file context not found")
+	return &StringFileContext[M]{}, FILE_CTX_NOT_FOUND
 }
