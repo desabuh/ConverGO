@@ -1,9 +1,13 @@
-package utils
+package log
 
 import (
 	"fmt"
 	"io"
 	"sync"
+)
+
+const (
+	FORMAT_PREFIX = "[%s] "
 )
 
 // singleton exposure for the logger
@@ -46,4 +50,9 @@ func (l *MutexLogger) NlLog(w io.Writer, content string, args ...any) {
 	l.Log(w, func(w io.Writer) {
 		fmt.Fprintln(w, fmt.Sprintf(content, args...))
 	})
+}
+
+func (l *MutexLogger) PrefNlog(prefix string, w io.Writer, content string, args ...any) {
+	args = append([]any{prefix}, args...)
+	l.NlLog(w, FORMAT_PREFIX+content+" ", args...)
 }
