@@ -92,6 +92,8 @@ func (e JsonEnvelopeEncoder[K]) Encode(env Envelope[K]) ([]byte, error) {
 	switch p := env.Data.(type) {
 	case JsonPayload:
 		raw = p.raw
+	case EmptyPayload: //if payload was specified as empty substitute an empty json payload
+		raw = []byte("{}")
 	default:
 		return nil, fmt.Errorf("unsupported payload type")
 	}

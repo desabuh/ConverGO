@@ -17,6 +17,9 @@ type Envelope[K comparable] struct {
 	Data Payload
 }
 
+//A function type to provide a wrapper along some key data K and a payload, it depends on the specific payload implementation
+type Enveloper[K comparable] func(key K, data any) (Envelope[K], error)
+
 func GetEmptyEnvelope[K comparable](metadata K) Envelope[K] {
 	return Envelope[K]{
 		Key:  metadata,
