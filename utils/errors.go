@@ -29,24 +29,35 @@ func (e *HandshakeError) Unwrap() error {
 
 type endpointData interface{ Format() string }
 
-type TCPTransportError struct {
-	failPeer  endpointData
-	otherPeer endpointData
-
-	isErrorLocal bool
-
-	Err error
+// A generic error to provide info to partial broadcast communication errors
+type BroadcastError[T comparable] struct {
+	Targets     []T
+	FailedIndex int
+	Cause       error
 }
 
-func (e *TCPTransportError) Error() string {
-
-	if e.isErrorLocal {
-		return fmt.Sprintf("TCP Transport local error from %s towards remote %s: %v", e.failPeer.Format(), e.otherPeer.Format(), e.Err)
-	} else {
-		return fmt.Sprintf("TCP Transport remote error from %s towards local %s: %v", e.failPeer.Format(), e.otherPeer.Format(), e.Err)
-	}
+func (e *BroadcastError[T]) Error() string {
+	return fmt.Sprintf(
+		"broadcast failed on target %v (send to %v was successfull, send to %v was aborted): %v",
+		e.FailedTarget(),
+		e.SuccessTargets(),
+		e.NotSent(),
+		e.Cause,
+	)
 }
 
-func (e *TCPTransportError) Unwrap() error {
-	return e.Err
+func (e *BroadcastError[T]) Unwrap() error {
+	return e.Cause
+}
+
+func (e *BroadcastError[T]) FailedTarget() T {
+	return e.Targets[e.FailedIndex]
+}
+
+func (e *BroadcastError[T]) NotSent() []T {
+	return e.Targets[e.FailedIndex:]
+}
+
+func (e *BroadcastError[T]) SuccessTargets() []T {
+	return e.Targets[:e.FailedIndex]
 }
