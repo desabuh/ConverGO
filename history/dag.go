@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/desabuh/convergo/cvrdt"
+	"github.com/desabuh/convergo/utils"
 )
 
 type OpVisualizationMode int
@@ -146,117 +147,64 @@ func (dag *OperationDAG) IsConcurrent(op1Id, op2Id string) bool {
 	return !dag.HasPath(op1Id, op2Id) && !dag.HasPath(op2Id, op1Id)
 }
 
-// GetCausalityRelation determines the relationship between two operations
-func (dag *OperationDAG) GetCausalityRelation(op1Id, op2Id string) CausalityRelation {
-	if op1Id == op2Id {
-		return Same
-	}
-	if dag.HasPath(op1Id, op2Id) {
-		return HappenedBefore
-	}
-	if dag.HasPath(op2Id, op1Id) {
-		return HappenedAfter
-	}
-	return Concurrent
-}
-
-// CausalityRelation describes the relationship between two operations
-type CausalityRelation int
-
-const (
-	Same CausalityRelation = iota
-	HappenedBefore
-	HappenedAfter
-	Concurrent
-)
-
-func (cr CausalityRelation) String() string {
-	switch cr {
-	case Same:
-		return "same"
-	case HappenedBefore:
-		return "happened-before"
-	case HappenedAfter:
-		return "happened-after"
-	case Concurrent:
-		return "concurrent"
-	default:
-		return "unknown"
-	}
-}
-
-// GetTopologicalLayers groups operations into topological (causal layers) for visualization
-// Layer 0: operations with no dependencies
-// Layer i: operations that depend only on layers 0..i-1
-// func (dag *OperationDAG) GetTopologicalLayers() [][]cvrdt.LogicalId {
-// 	var layers [][]cvrdt.LogicalId
-
-// 	for _, n := range dag.Nodes {
-// 		layer := n.Operation.OpId().GetClock()
-
-// 		for len(layers) <= layer {
-// 			layers = append(layers, []cvrdt.LogicalId{})
-// 		}
-
-// 		layers[layer] = append(layers[layer], n.Operation.OpId())
-// 	}
-
-// 	return layers
-// }
-
+// return a slice of slice of logicalId where each slice i is the list all operations that depends on layer i-1
 func (dag *OperationDAG) GetTopologicalLayers() [][]cvrdt.LogicalId {
-	layers := [][]cvrdt.LogicalId{}
-	assigned := make(map[string]int) // opId -> layer number
+	//if nodes are empty return
+	if len(dag.Nodes) == 0 {
+		return nil
+	}
 
-	// Keep assigning layers until all nodes are assigned
-	for len(assigned) < len(dag.Nodes) {
-		currentLayer := []cvrdt.LogicalId{}
+	//indegree: for each nodes is the number of incoming edges
+	indegree := make(map[string]int, len(dag.Nodes))
+	//starting roots nodes
+	current := make([]string, 0, len(dag.Roots))
 
-		for opId, node := range dag.Nodes {
-			if _, alreadyAssigned := assigned[opId]; alreadyAssigned {
-				continue
-			}
+	// for each nodes their indegree are their direct parents
+	for id, node := range dag.Nodes {
+		indegree[id] = len(node.Parents)
+	}
 
-			// Check if all parents are assigned to previous layers
-			canAssign := true
-			maxParentLayer := -1
+	//init current as root nodes
+	for id := range dag.Roots {
+		current = append(current, id)
+	}
+	//sort starting nodes (first site id and then op id)
+	slices.Sort(current)
 
-			for _, parentId := range node.Parents {
-				parentIdStr := parentId.String()
+	var layers [][]cvrdt.LogicalId
+	//this var is only neeed to validate incosistent graphs by counting processed nodes(if the graph is a correct DAG no problem will arise)
+	processed := 0
 
-				if parentLayer, isAssigned := assigned[parentIdStr]; isAssigned {
-					if parentLayer > maxParentLayer {
-						maxParentLayer = parentLayer
-					}
-				} else {
-					// Parent not yet assigned, can't assign this node yet
-					canAssign = false
-					break
+	for len(current) > 0 {
+		next := make([]string, 0)
+		layer := make([]cvrdt.LogicalId, 0, len(current))
+
+		for _, id := range current {
+			//init the layer with all the ids of current nodes
+			layer = append(layer, dag.Nodes[id].Operation.OpId())
+			processed++
+
+			//now find all children of the current operation node
+			children := slices.Clone(dag.Edges[id])
+			slices.Sort(children) // deterministic unlock order
+
+			//for each children decrease their indegree (the current parent was already processed)
+			//if their indegree is 0 it means all its parents are processed so it can be included in the next layer
+			for _, child := range children {
+				indegree[child]--
+				if indegree[child] == 0 {
+					next = append(next, child)
 				}
 			}
-
-			// Node can be assigned to layer (maxParentLayer + 1)
-			if canAssign {
-				currentLayer = append(currentLayer, node.Operation.OpId())
-			}
 		}
 
-		if len(currentLayer) > 0 {
-			// Sort layer by Lamport clock for deterministic display
-			sort.Slice(currentLayer, func(i, j int) bool {
-				return currentLayer[i].Less(currentLayer[j])
-			})
+		layers = append(layers, layer)
+		slices.Sort(next)
+		current = next
+	}
 
-			layers = append(layers, currentLayer)
-
-			// Mark as assigned to this layer
-			for _, opId := range currentLayer {
-				assigned[opId.String()] = len(layers) - 1
-			}
-		} else {
-			// Safety: break if we can't make progress (shouldn't happen with valid DAG)
-			break
-		}
+	if processed != len(dag.Nodes) {
+		panic("history: DAG contains a cycle or inconsistent indegrees")
 	}
 
 	return layers
@@ -325,110 +273,81 @@ func (dag *OperationDAG) String() string {
 	return result
 }
 
-// ToASCIITree returns an ASCII tree representation of the DAG
-// maxDepth limits the nesting depth (e.g., 15) to prevent overwhelming output
-// If maxDepth is 0, no limit is applied
-// Concurrent operations are shown at the same nesting level
-// Sequential/dependent operations are shown at deeper nesting levels
-func (dag *OperationDAG) ToASCIITree(maxDepth int) string {
-	if len(dag.Nodes) == 0 {
-		return "Empty DAG\n"
-	}
-
-	var result string
-	result += fmt.Sprintf("\n┌─ DAG: %d operations, %d causal edges\n", len(dag.Nodes), dag.countEdges())
-	result += "│\n"
-
-	// Get causal layers - each layer contains concurrent operations
-	layers := dag.GetTopologicalLayers()
-
-	// Check depth limit
-	displayLayers := layers
-	truncated := false
-	if maxDepth > 0 && len(layers) > maxDepth {
-		displayLayers = layers[:maxDepth]
-		truncated = true
-	}
-
-	// Build tree layer by layer
-	for layerIdx, layer := range displayLayers {
-		isLastLayer := layerIdx == len(displayLayers)-1
-
-		// Sort operations in layer for deterministic output
-		sortedOps := make([]string, len(layer))
-		for i, opId := range layer {
-			sortedOps[i] = opId.String()
-		}
-		sort.Strings(sortedOps)
-
-		// Determine prefix for this layer
-		prefix := strings.Repeat("│  ", layerIdx)
-
-		// Display all operations in this layer at the same nesting level
-		for opIdx, opIdStr := range sortedOps {
-			isLastInLayer := opIdx == len(sortedOps)-1
-			node := dag.Nodes[opIdStr]
-
-			// Determine branch character
-			var branch string
-			if isLastLayer && isLastInLayer && !truncated {
-				branch = "└─"
-			} else {
-				branch = "├─"
-			}
-
-			// Build operation info
-			opInfo := fmt.Sprintf("%s [%s]", opIdStr, node.Operation.Op().String()[:3])
-
-			opInfo += fmt.Sprintf(" '%s'", node.Operation.Char())
-
-			// Show parent count if multiple parents (merge point)
-			if len(node.Parents) > 1 {
-				opInfo += fmt.Sprintf(" [%d parents]", len(node.Parents))
-			}
-
-			result += prefix + branch + " " + opInfo
-
-			// Show direct children inline (if any)
-			children := dag.Edges[opIdStr]
-			if len(children) > 0 {
-				// Sort children for deterministic output
-				sortedChildren := make([]string, len(children))
-				copy(sortedChildren, children)
-				sort.Strings(sortedChildren)
-
-				result += " → "
-				for childIdx, childId := range sortedChildren {
-					if childIdx > 0 {
-						result += ", "
-					}
-					result += childId
-				}
-			}
-
-			result += "\n"
-		}
-
-		// Add separator between layers if not last
-		if !isLastLayer {
-			result += prefix + "│\n"
-		}
-	}
-
-	// Show truncation message if depth limit was reached
-	if truncated {
-		prefix := strings.Repeat("│  ", len(displayLayers))
-		result += prefix + "...\n"
-		result += prefix + fmt.Sprintf("(%d more layers not shown)\n", len(layers)-len(displayLayers))
-	}
-
-	return result
-}
-
 func (dag *OperationDAG) countEdges() int {
 	count := 0
 	for _, toList := range dag.Edges {
 		count += len(toList)
 	}
 	return count
+}
+
+func (dag *OperationDAG) ToASCIITree(maxDepth int) string {
+	if len(dag.Nodes) == 0 {
+		return "Empty DAG\n"
+	}
+
+	layers := dag.GetTopologicalLayers()
+	if len(layers) == 0 {
+		return "Empty DAG\n"
+	}
+
+	display := layers
+	truncated := false
+	if maxDepth > 0 && len(layers) > maxDepth {
+		display = layers[:maxDepth]
+		truncated = true
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n┌─ DAG: %d operations, %d causal edges\n", len(dag.Nodes), dag.countEdges())
+	b.WriteString("│\n")
+
+	for layerIdx, layer := range display {
+		prefix := strings.Repeat("│  ", layerIdx)
+		isLastLayer := layerIdx == len(display)-1
+
+		for opIdx, opID := range layer {
+			isLastInLayer := opIdx == len(layer)-1
+			branch := "├─"
+			if isLastLayer && isLastInLayer && !truncated {
+				branch = "└─"
+			}
+
+			fmt.Fprintf(&b, "%s%s %s\n", prefix, branch, dag.formatASCIINode(opID.String()))
+		}
+
+		if !isLastLayer {
+			fmt.Fprintf(&b, "%s│\n", prefix)
+		}
+	}
+
+	if truncated {
+		prefix := strings.Repeat("│  ", len(display))
+		b.WriteString(prefix + "...\n")
+		fmt.Fprintf(&b, "%s(%d more layers not shown)\n", prefix, len(layers)-len(display))
+	}
+
+	return b.String()
+}
+
+func (dag *OperationDAG) formatASCIINode(opID string) string {
+	node := dag.Nodes[opID]
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s [%s] '%s'", opID, node.Operation.Op().String(), node.Operation.Char())
+
+	if len(node.Parents) > 1 {
+
+		ids := strings.Join(utils.Map(node.Parents, func(lid cvrdt.LogicalId) string { return lid.String() }), ", ")
+
+		fmt.Fprintf(&b, " [%d parents (%s)]", len(node.Parents), ids)
+	}
+
+	children := dag.Edges[opID]
+	if len(children) > 0 {
+		b.WriteString(" → ")
+		b.WriteString(strings.Join(children, ", "))
+	}
+
+	return b.String()
 }
