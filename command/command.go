@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -73,81 +74,105 @@ func ConcatResultMessages(results ...ResultMessage) ResultMessage {
 	}
 }
 
+func WithTimeoutCommand[S any](
+	base func(CommandContext[S]),
+	timeout time.Duration,
+) func(CommandContext[S]) {
+
+	return func(cmd CommandContext[S]) {
+
+		ctx, cancel := context.WithTimeout(
+			cmd.Context,
+			timeout,
+		)
+		defer cancel()
+
+		copy := cmd
+		copy.Context = ctx
+
+		done := make(chan struct{})
+
+		go func() {
+			base(copy)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-ctx.Done():
+			cmd.Error(ctx.Err())
+		}
+	}
+}
+
 // functional interface to execute commands
 // Execute() method should accept a context and a send-only channel to report the result of the operation
 // the way this interface is written is not intended to report result (except for errors)
-type Command interface {
-	Execute(ctx context.Context, args []string, done chan<- ResultMessage)
+type Command[S any] interface {
+	Execute(CommandContext[S])
 }
 
 // function decorator to wrap functional interface Command
 // it should be used wether using closure in the command usage is important
 // done is the result channel
-type CommandFunc func(ctx context.Context, args []string, done chan<- ResultMessage)
+type CommandFunc[S any] func(CommandContext[S])
 
-func (f CommandFunc) Execute(ctx context.Context, args []string, done chan<- ResultMessage) {
-	f(ctx, args, done)
+func (f CommandFunc[S]) Execute(cmd CommandContext[S]) {
+	f(cmd)
 }
 
-func WithTimeoutCommand(base CommandFunc, timeout time.Duration) CommandFunc {
-	return func(ctx context.Context, args []string, done chan<- ResultMessage) {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-
-		resChannel := make(chan ResultMessage, 1)
-
-		go func() {
-			base(ctx, args, resChannel)
-		}()
-
-		select {
-		case res := <-resChannel:
-			done <- res
-		case <-ctx.Done():
-			done <- FromError(ctx.Err())
-
-		}
-	}
-
+type CommandParser[S any] struct {
+	commands map[string]Command[S]
 }
 
-type CommandParser struct {
-	commands map[string]Command
-}
-
-func NewCommandParser() CommandParser {
-	return CommandParser{
-		commands: make(map[string]Command),
+func NewCommandParser[S any]() *CommandParser[S] {
+	return &CommandParser[S]{
+		commands: make(map[string]Command[S]),
 	}
 }
 
-func (p *CommandParser) Parse(input string) (Command, error) {
-	res := strings.Split(input, " ")
+func (p *CommandParser[S]) Parse(
+	input string,
+) (*ParsedCommand[S], error) {
 
-	if len(res) < 2 { //command should have a at least an argument
-		return &CommandWithArgs{}, fmt.Errorf("command input not complete: %s", res)
+	fields := strings.Fields(input)
+
+	if len(fields) == 0 {
+		return nil, errors.New("empty command")
 	}
 
-	cmdStr := res[0]
-	args := res[1:]
+	commandName := fields[0]
 
-	if command, exists := p.commands[cmdStr]; exists {
-		return &CommandWithArgs{command, args}, nil
+	command, exists := p.commands[commandName]
+
+	if !exists {
+		return nil, fmt.Errorf(
+			"command not found: %s",
+			commandName,
+		)
 	}
-	return &CommandWithArgs{}, fmt.Errorf("command not found: %s", cmdStr)
+
+	return &ParsedCommand[S]{
+		Command: command,
+		Args:    fields[1:],
+	}, nil
 }
 
-func (p CommandParser) Register(input string, action Command) CommandParser {
-	p.commands[input] = action
+func (p *CommandParser[S]) Register(
+	name string,
+	command func(CommandContext[S]),
+) *CommandParser[S] {
+
+	p.commands[name] = CommandFunc[S](command)
 	return p
 }
 
 // simple decorator to store internally the argument, the second parameter in Execute method in not needed, only necessary to conform to interface
-type CommandWithArgs struct {
-	cmd  Command
-	args []string
+type ParsedCommand[S any] struct {
+	Command Command[S]
+	Args    []string
 }
 
-func (c *CommandWithArgs) Execute(ctx context.Context, args []string, done chan<- ResultMessage) {
-	c.cmd.Execute(ctx, c.args, done)
+func (c *ParsedCommand[S]) Execute(cmd CommandContext[S]) {
+	c.Command.Execute(cmd)
 }
