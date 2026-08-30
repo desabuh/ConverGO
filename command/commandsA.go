@@ -1,254 +1,349 @@
 package command
 
 import (
-	"context"
-	"os"
 	"strconv"
 	"time"
 
-	"github.com/desabuh/convergo/cvrdt"
+	"github.com/desabuh/convergo/cluster"
+	"github.com/desabuh/convergo/config"
+	"github.com/desabuh/convergo/history"
+	"github.com/desabuh/convergo/log"
 	"github.com/desabuh/convergo/p2p"
-	"github.com/desabuh/convergo/utils"
 )
 
-const SITE_ID = "1"
-const DOMAIN_PATH = "./test_domain_concurrent/"
+var logFactory log.GlobalLoggerFactory = log.NewMutexLoggerFactory(config.LoggerDefaultConfigExtractor{})
+var networkModuleFactory p2p.NetworkModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata] = p2p.TCPJsonPeerNetworkModuleFactory{ConfigExtractor: config.NeworkDefaultConfigExtractor{}}
 
-var DEFAULT_OUT_STREAM = os.Stdout
+var appNodeModuleFactory cluster.AppNodeModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata] = cluster.AppNodeModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata]{NetworkModuleFactory: networkModuleFactory, LoggerFactory: logFactory}
 
-func guard(ctx context.Context, cond bool) bool {
-	return cond || ctx.Err() != nil
-}
+//var clusterClient *cluster.ClusterClient
 
-var client *p2p.CvrdtNetClient
-
-var CommandRegistry CommandParser = NewCommandParser().
+var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 	Register(
 		"edit",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 			const NUM_PARAMS = 3
 			const INSERT_NUM_PARAMS = 4
 
-			if len(args) < NUM_PARAMS {
-				done <- FromErrStr("Command should have at least %d arguments", NUM_PARAMS)
+			if len(cmd.Args) < NUM_PARAMS {
+				cmd.Reply(FromErrStr("Command should have at least %d arguments", NUM_PARAMS))
 				return
 			}
 
-			opStr := args[0]
+			opType := cmd.Args[0]
 
-			var opType cvrdt.OpType
+			filepath := cmd.Args[1]
 
-			if opStr == "insert" {
-				opType = cvrdt.Insertion
-			} else if opStr == "delete" {
-				opType = cvrdt.Deletion
-			} else {
-				done <- FromErrStr("First argument should be operation mode 'insert' or 'delete' not %s", opStr)
-				return
-			}
-
-			filepath := args[1]
-
-			pos, err := strconv.Atoi(args[2])
+			pos, err := strconv.Atoi(cmd.Args[2])
 
 			if err != nil {
-				done <- FromErrStr("Position should be an integer")
+				cmd.Reply(FromErrStr("Position should be an integer"))
 				return
 			}
 
 			content := ""
-			if opType == cvrdt.Insertion {
-				if len(args) < INSERT_NUM_PARAMS {
-					done <- FromErrStr("Command edit should also provide 'content' parameter'")
+			if opType == "insert" {
+				if len(cmd.Args) < INSERT_NUM_PARAMS {
+					cmd.Reply(FromErrStr("Command edit should also provide 'content' parameter with insertion"))
 					return
 				}
-				content = args[3]
+				content = cmd.Args[3]
 			}
 
-			currentInfo, err := client.Registry.GetFileCtxInfo(filepath)
-
-			isCtxExist := err == nil
-
-			var creationLog ResultMessage
-
-			if !isCtxExist {
-				err := client.Registry.CreateFileCtx(filepath, time.Duration(3*time.Second))
-
-				creationLog = FromSuccess("A new file context %s was created", nil, filepath)
-
-				if err != nil {
-					done <- ConcatResultMessages(creationLog, FromError(err))
-					return
-				}
-
-				currentInfo, err = client.Registry.GetFileCtxInfo(filepath)
-
-				if err != nil {
-					done <- ConcatResultMessages(creationLog, FromError(err))
-					return
-				}
-			}
-
-			newState := cvrdt.GetNewStateFromOp(
-				cvrdt.CreateNewLocalOp(opType, pos, content, SITE_ID),
-			)
-
-			mergedState := currentInfo.ReadOnlyState.Merge(newState)
-
-			currentInfo.ReadOnlyState = mergedState
-			_, err = client.Registry.UpdateFileCtx(currentInfo)
+			client, err := cmd.App.GetDefaultClient()
 
 			if err != nil {
-				done <- ConcatResultMessages(creationLog, FromError(err))
+				cmd.Reply(FromErrStr("No working client was set: %v", err))
+			}
+
+			wasFileCreated, err := client.CreateNewLocalOperation(filepath, opType, content, pos)
+
+			if err != nil {
+
+				var errorLog ResultMessage = FromErrStr("Fail to edit operation %s for file %s", opType, filepath)
+
+				if wasFileCreated {
+					cmd.Reply(ConcatResultMessages(errorLog, FromErrStr("An error occured when trying to create file %s: %v", filepath, err)))
+				} else {
+					cmd.Reply(ConcatResultMessages(errorLog, FromErrStr("An error occured when trying to update file %s: %v", filepath, err)))
+				}
+
 				return
+
 			}
 
-			if opType == cvrdt.Deletion {
-				currentInfo, _ = client.Registry.GetFileCtxInfo(filepath)
-				content = currentInfo.ReadOnlyState[1].Char()
-			}
+			cmd.Reply(FromSuccess("Edit operation for %s file context was a success", nil, filepath))
 
-			done <- ConcatResultMessages(creationLog, FromSuccess("%s operation of %s in position %d was a success", nil, opStr, content, pos))
-
-		}), 2*time.Second),
-	).
+		}).
 	Register(
 		"push",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 
-			err := client.BroadcastRegistryOverTransport(ctx)
+			client, err := cmd.App.GetDefaultClient()
 
 			if err != nil {
-				done <- FromErrStr("Push broadcasting failure %v", err)
+				cmd.Reply(FromErrStr("No working client was set: %v", err))
 			}
 
-			done <- FromSuccess("Push broadcasting successfull!", nil)
+			err = client.DiffuseData(cmd.Context)
 
-		}), 2*time.Second),
-	).
+			if err != nil {
+				cmd.Reply(FromErrStr("Push broadcasting failure: %v", err))
+				return
+			}
+
+			cmd.Reply(FromSuccess("Push broadcasting successfull!", nil))
+
+		}).
 	Register(
 		"read",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 
-			if client == nil {
-				done <- FromErrStr("CvrdtClient should be initialized to visualize file contexts content")
-			}
-
-			if len(args) < 1 {
-				done <- FromErrStr("File context <filepath> argument should be supplied")
-			}
-
-			filepath := args[0]
-
-			content, err := client.Registry.GetFileContent(filepath)
-
-			if err != nil {
-				done <- FromError(err)
+			if len(cmd.Args) < 1 {
+				cmd.Reply(FromErrStr("File context <filepath> argument should be supplied"))
 				return
 			}
 
-			done <- FromSuccess("File %s was read with success", content, filepath)
+			filepath := cmd.Args[0]
 
-		}), 1*time.Second),
-	).
+			client, err := cmd.App.GetDefaultClient()
+
+			if err != nil {
+				cmd.Reply(FromErrStr("No working client was set: %v", err))
+			}
+
+			content, err := client.DisplayData(history.ContentVisual, filepath, 0)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("error when trying to display visual content for %s: %v", filepath, err))
+				return
+			}
+
+			cmd.Reply(FromSuccess("File %s was read with success", content, filepath))
+
+		}).
 	Register(
 		"history",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 
-			if client == nil {
-				done <- FromErrStr("CvrdtClient should be initialized to visualize file contexts history")
-			}
-
-			if len(args) < 1 {
-				done <- FromErrStr("Should specify file context <pathfile>")
+			if len(cmd.Args) < 1 {
+				cmd.Reply(FromErrStr("Should specify file context <pathfile>"))
 				return
 			}
 
-			filepath := args[0]
+			filepath := cmd.Args[0]
 
-			ctxInfo, err := client.Registry.GetFileCtxInfo(filepath)
+			var deep int = 0
+			var mode history.OpVisualizationMode = history.LinearVisual
 
-			//ctxInfo, err := Registry.GetFileCtxInfo(filepath)
+			if len(cmd.Args) > 1 {
+
+				var err error
+				deep, err = strconv.Atoi(cmd.Args[1])
+
+				if err != nil {
+					cmd.Reply(FromErrStr("Argument <deep> should be specified as an integer"))
+					return
+				}
+
+				mode = history.DagVisual
+			}
+
+			client, err := cmd.App.GetDefaultClient()
 
 			if err != nil {
-				done <- FromError(err)
+				cmd.Reply(FromErrStr("No working client was set: %v", err))
 				return
 			}
 
-			var opContent string = ""
-			for _, crdtOp := range ctxInfo.ReadOnlyState {
-				opContent = opContent + crdtOp.OpId().String() + "\n"
-			}
+			res, err := client.DisplayData(mode, filepath, deep)
 
-			if opContent == "" {
-				done <- FromErrStr("No operation have been applied to file: %s", filepath)
+			if err != nil {
+				cmd.Reply(FromErrStr("History for file %s could not be correctly visualized: %v", filepath, err))
 				return
 			}
 
-			done <- FromSuccess(
-				"%d operation have been found on %s file",
-				opContent,
-				len(ctxInfo.ReadOnlyState),
+			cmd.Reply(FromSuccess(
+				"Visualizing %s history:",
+				res,
 				filepath,
-			)
+			))
 
-		}), 1*time.Second),
-	).
+		}).
 	Register(
-		"init",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
+		"create_cluster_client",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 
-			if client != nil {
-				done <- FromErrStr("CvrdtClient already initialized on on address %s", client.Id.Address)
-			}
-
-			if len(args) < 1 {
-				done <- FromErrStr("Init command should supply <ip:port> command")
-			}
-
-			hostName := ctx.Value("hostname").(p2p.PeerHostInfo)
-
-			shakeCodec := p2p.NewCodec(p2p.JsonEncoder[p2p.PeerHostInfo]{}, p2p.JsonDecoder[p2p.PeerHostInfo]{})
-
-			transportCodec := p2p.NewCodec(p2p.JsonEnvelopeEncoder[p2p.PeerMetadata]{}, p2p.JsonEnvelopeDecoder[p2p.PeerMetadata]{})
-
-			client = p2p.CreateNewTCPWootBasedClient(hostName, DOMAIN_PATH, shakeCodec, transportCodec)
-
-			go client.WaitForMessages(context.Background())
-
-			go func() {
-				err := client.Init()
-				utils.Logger.NlLog(DEFAULT_OUT_STREAM, "peer waiting interface closed: %v", err)
-				return
-			}()
-
-			done <- FromSuccess("Peer initialization, waiting on address %s", nil, hostName.Address.String())
-
-		},
-		), 2*time.Second),
-	).
-	Register(
-		"pair",
-		WithTimeoutCommand(CommandFunc(func(ctx context.Context, args []string, done chan<- ResultMessage) {
-
-			if client == nil {
-				done <- FromErrStr("CvrdtClient should be initialized to pair with others clients")
-			}
-
-			if len(args) < 1 {
-				done <- FromErrStr("Pair ip address of the target client should be specified")
+			if len(cmd.Args) == 0 {
+				cmd.Reply(FromErrStr("First argument should specify client info <name>_<address>"))
 				return
 			}
 
-			err := client.Pair(ctx, args[0])
+			clientInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_CLIENT_ID)
 
 			if err != nil {
-				done <- FromErrStr("Could not pair with target client: %w", err)
+				cmd.Reply(FromError(err))
 				return
 			}
 
-			done <- FromSuccess("Target client on address %s is successfully paired", nil, args[0])
+			if len(cmd.Args) < 2 {
+				cmd.Reply(FromErrStr("Second argument should specify server info <domain>_<address>"))
+				return
+			}
 
-		},
-		), 10*time.Second),
-	)
+			serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[1], p2p.CLUSTER_SERVER_ID)
+
+			if err != nil {
+				cmd.Reply(FromError(err))
+				return
+			}
+
+			err = cmd.App.CreateNewClient(cmd.Context, serverInfo, clientInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot create a new Client: %v", err))
+				return
+			}
+
+			err = cmd.App.SetDefaultClient(clientInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot set working client: %v", err))
+				return
+			}
+
+			cmd.Reply(FromSuccess("Cluster Client %s was created", nil, clientInfo.Format()))
+
+		}).
+	Register(
+		"create_cluster_server",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) == 0 {
+				cmd.Reply(FromErrStr("Argument needs to be provided as <domain>_<address>"))
+				return
+			}
+
+			serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_SERVER_ID)
+
+			if err != nil {
+				cmd.Reply(FromError(err))
+				return
+			}
+
+			err = cmd.App.CreateNewServer(cmd.Context, serverInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot create a new Server: %v", err))
+				return
+			}
+
+			//server := cluster.CreateNewClusterServer(serverInfo, appNodeModuleFactory)
+
+			//go server.Init(cmd.Context)
+
+			cmd.Reply(FromSuccess("Cluster Server %s was created", nil, serverInfo.Format()))
+
+		}).
+	Register(
+		"connect_to_cluster",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) < 1 {
+				cmd.Reply(FromErrStr("A new peer address should be provided to connect to cluster"))
+				return
+			}
+
+			peerAddress := cmd.Args[0]
+
+			//err := clusterClient.ConnectToCluster(cmd.Context, peerAddress)
+
+			client, err := cmd.App.GetDefaultClient()
+
+			if err != nil {
+				cmd.Reply(FromErrStr("No working client was set: %v", err))
+			}
+
+			err = client.ConnectToCluster(cmd.Context, peerAddress)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cluster client fail to connect to cluster server: %v", err))
+				return
+			}
+
+			cmd.Reply(FromSuccess("Connection to cluster server successfull", nil))
+
+		}).
+	Register(
+		"wait",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) < 1 {
+				cmd.Reply(FromErrStr("A time to wait should be supplied in ms"))
+			}
+
+			timeStr := cmd.Args[0]
+
+			timeToWait, err := strconv.Atoi(timeStr)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Time supplied should be an integer: %w", err))
+			}
+
+			if timeToWait < 0 {
+				cmd.Reply(FromErrStr("Time supplied should be greater than 0"))
+			}
+
+			time.Sleep(time.Duration(timeToWait) * time.Millisecond)
+
+			cmd.Reply(FromSuccess("Successfully waited %d ms", nil, timeToWait))
+
+		}).
+	Register(
+		"set_working_client",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) == 0 {
+				cmd.Reply(FromErrStr("First argument should specify client info as <name>_<address>"))
+				return
+			}
+
+			clientInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_CLIENT_ID)
+
+			if err != nil {
+				cmd.Reply(FromError(err))
+				return
+			}
+
+			err = cmd.App.SetDefaultClient(clientInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot set working client: %v", err))
+			}
+
+			cmd.Reply(FromSuccess("%s was set as default Client", nil, clientInfo.Format()))
+		}).
+	Register(
+		"set_working_server",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) < 1 {
+				cmd.Reply(FromErrStr("First argument should specify client info as <domain>_<address>"))
+				return
+			}
+
+			serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_SERVER_ID)
+
+			if err != nil {
+				cmd.Reply(FromError(err))
+				return
+			}
+
+			err = cmd.App.SetDefaultServer(serverInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot set working server: %v", err))
+			}
+
+			cmd.Reply(FromSuccess("%s was set as default Server", nil, serverInfo.Format()))
+		})
