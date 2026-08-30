@@ -43,9 +43,9 @@ func (fc *FileContext[M, R]) TrackState() {
 	go fc.poller.Run()
 }
 
-func (fc *FileContext[M, R]) UntrackState() {
+func (fc *FileContext[M, R]) UntrackState() error {
 	fc.isStateTracked = false
-	fc.poller.Stop()
+	return fc.poller.Stop()
 }
 
 func (fc *FileContext[M, R]) UpdateState(internalState M) error {
@@ -62,6 +62,7 @@ func (fc *FileContext[M, R]) GetStateCopy() FileContextInfo[M] {
 
 // a readonly version of the FileContext general info and synchronized readonly state
 type FileContextInfo[M any] struct {
-	LocalPath     string
-	ReadOnlyState M
+	LocalPath      string
+	IsNewlyCreated bool
+	ReadOnlyState  M
 }

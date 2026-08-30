@@ -19,13 +19,13 @@ func (l *FormattedMutexLogger) Log(content string, args ...any) {
 
 type FormattedMutexLoggerFactory struct {
 	logger *MutexLogger
-	config.Configurable[config.LoggerConfig]
+	config.ConfigExtractor[config.LoggerConfig]
 }
 
-func NewMutexLoggerFactory(configurable config.Configurable[config.LoggerConfig]) *FormattedMutexLoggerFactory {
+func NewMutexLoggerFactory(configurable config.ConfigExtractor[config.LoggerConfig]) *FormattedMutexLoggerFactory {
 	return &FormattedMutexLoggerFactory{
-		logger:       NewMutexLogger(),
-		Configurable: configurable,
+		logger:          NewMutexLogger(),
+		ConfigExtractor: configurable,
 	}
 }
 
