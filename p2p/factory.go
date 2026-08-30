@@ -7,11 +7,11 @@ import (
 // a generic factory to return a new NetworkModule[M, T, R], provide two methods:
 // - Create accept the module identifier T
 // - CreateFromArgs provide other that the identifier also additional arguments to override the factory default behavior
-// Should also implement a Configurable interface to extract configuration from the hashmap
+// Should also implement a ConfigExtractor interface to extract configuration from the hashmap
 type NetworkModuleFactory[M comparable, T comparable, R comparable] interface {
 	Create(id T) NetworkModule[M, T, R]
 	CreateFromArgs(id T, args map[string]any) NetworkModule[M, T, R]
-	config.Configurable[config.NetworkModuleConfig]
+	config.ConfigExtractor[config.NetworkModuleConfig]
 }
 
 type NetworkModule[M comparable, T comparable, R comparable] struct {
@@ -22,7 +22,7 @@ type NetworkModule[M comparable, T comparable, R comparable] struct {
 
 // a factory that return a new NetworkModule based on TCP transport, json based encoding and PeerMessage based communication
 type TCPJsonPeerNetworkModuleFactory struct {
-	config.Configurable[config.NetworkModuleConfig]
+	config.ConfigExtractor[config.NetworkModuleConfig]
 }
 
 func (nm TCPJsonPeerNetworkModuleFactory) Create(id PeerHostInfo) NetworkModule[PeerMessage, PeerHostInfo, PeerMetadata] {
@@ -58,7 +58,10 @@ func (nm TCPJsonPeerNetworkModuleFactory) initModule(id PeerHostInfo, networkCon
 
 	clusterTransport.SetLocalMsgFactory(jsonEnveloper)
 
-	broker := NewPeerMessageBroker(clusterTransport, networkConfig.QueueSize)
+	broker := NewPeerMessageBroker(clusterTransport)
+
+	config.WithConfig(clusterTransport, networkConfig.TransportConfig)
+	config.WithConfig(broker, networkConfig.BrokerConfig)
 
 	return NetworkModule[Envelope[PeerMetadata], PeerHostInfo, PeerMetadata]{
 		Transport:     clusterTransport,

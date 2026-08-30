@@ -55,6 +55,7 @@ func isTimeoutError(err error) bool {
 }
 
 func TestSendReceivePeer(t *testing.T) {
+
 	peerConn1, peerConn2 := net.Pipe()
 
 	peer1, err := NewTCPPeer(peerConn1)
@@ -72,22 +73,24 @@ func TestSendReceivePeer(t *testing.T) {
 
 	msgCh, msgErr := peer1.Receive(ctx)
 
+	terminationSignal := make(chan struct{})
+
 	go func() {
 		select {
-		case msgRec, ok := <-msgCh:
-			if !ok {
-				t.Errorf("error with message channel")
-			}
+		case msgRec := <-msgCh:
 			assert.Equal(t, msg, msgRec, "message sent should match with message received")
+		case err := <-msgErr:
+			t.Errorf("error from channel while trying to receive messages: %v", err)
 
-		case <-msgErr:
-			t.Errorf("error from channel while trying to receive messages")
 		}
+		close(terminationSignal)
 	}()
 
 	err = peer2.Send(ctx, msg)
 
 	assert.Nil(t, err, "Error in sending message")
+
+	<-terminationSignal
 
 }
 
@@ -123,5 +126,83 @@ func TestReceiveInterrupted(t *testing.T) {
 	cancel()
 
 	<-terminationSignal
+
+}
+
+func TestMultipleChannelReceiveInstance(t *testing.T) {
+	peerConn1, peerConn2 := net.Pipe()
+	defer peerConn1.Close()
+	defer peerConn2.Close()
+
+	peer1, err := NewTCPPeer(peerConn1)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	peer2, err := NewTCPPeer(peerConn2)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	defer peer1.Close()
+	defer peer2.Close()
+
+	ctx1 := context.Background()
+
+	msgCh, msgErr := peer1.Receive(ctx1)
+
+	terminationSignal := make(chan struct{})
+
+	go func() {
+		select {
+		case <-msgCh:
+		case <-msgErr:
+		}
+		//when second receive is called the old channels are closed
+
+		close(terminationSignal)
+	}()
+
+	ctx2, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	_, _ = peer1.Receive(ctx2)
+
+	<-terminationSignal
+
+}
+
+func TestMultipleCtxReceiveInstance(t *testing.T) {
+	const TOTAL_TIME = 1 * time.Second
+
+	peerConn1, peerConn2 := net.Pipe()
+
+	peer1, err := NewTCPPeer(peerConn1)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	peer2, err := NewTCPPeer(peerConn2)
+	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+
+	defer peer1.Close()
+	defer peer2.Close()
+
+	ctx1, cancel := context.WithTimeout(context.Background(), TOTAL_TIME)
+	defer cancel()
+
+	msgC, errC := peer1.Receive(ctx1)
+
+	err = peer2.Send(ctx1, []byte("Test"))
+
+	select {
+	case <-msgC:
+	case err := <-errC:
+		t.Errorf("Error received from peer error channel: %v", err)
+	}
+
+	ctx2 := context.Background()
+
+	msgC, errC = peer1.Receive(ctx2)
+
+	select {
+	case err := <-errC:
+		t.Errorf("Error received from peer error channel: %v", err)
+	case <-time.After(2 * TOTAL_TIME): //old ctx should not affect new receive
+	}
 
 }
