@@ -12,13 +12,12 @@ import (
 // A poller that countinuosly dump every interval some data R from a provider into a writer
 // Note: the safe concurrent access to the provider should be garanteed by the provider itself
 type StatePollingDumper[R any] struct {
-	provider   utils.SnapshotView[R]
-	writer     io.Writer
-	encode     func(R) ([]byte, error)
-	onShutDown func() error
-	interval   time.Duration
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
+	provider utils.SnapshotView[R]
+	writer   io.Writer
+	encode   func(R) ([]byte, error)
+	interval time.Duration
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 func GetFileStringPollingDumper(provider utils.SnapshotView[string], file *os.File, interval time.Duration) StatePollingDumper[string] {
@@ -29,10 +28,10 @@ func GetFileStringPollingDumper(provider utils.SnapshotView[string], file *os.Fi
 		encode: func(data string) ([]byte, error) { //placeholder will need a change cache
 			return []byte(data), nil
 		},
-		onShutDown: func() error { return file.Close() }, //closure to manage file shutdown
-		interval:   interval,
-		stopCh:     make(chan struct{}),
-		wg:         sync.WaitGroup{},
+		//onShutDown: func() error { return file.Close() }, //closure to manage file shutdown
+		interval: interval,
+		stopCh:   make(chan struct{}),
+		wg:       sync.WaitGroup{},
 	}
 }
 
@@ -40,7 +39,7 @@ func (sd *StatePollingDumper[R]) Run() {
 	defer sd.wg.Done()
 	ticker := time.NewTicker(sd.interval)
 	defer ticker.Stop()
-	defer sd.onShutDown()
+	//defer sd.onShutDown()
 
 	sd.wg.Add(1)
 
@@ -71,8 +70,8 @@ func (sd *StatePollingDumper[R]) Run() {
 	}
 }
 
-func (sd *StatePollingDumper[R]) Stop() {
+func (sd *StatePollingDumper[R]) Stop() error {
 	close(sd.stopCh)
 	sd.wg.Wait()
-	sd.writer.(*os.File).Close()
+	return sd.writer.(*os.File).Close()
 }

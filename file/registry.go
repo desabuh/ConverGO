@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/desabuh/convergo/cvrdt"
@@ -15,10 +16,11 @@ var (
 )
 
 const (
-	POLLING_INTERVAL = 3 * time.Second
+	POLLING_INTERVAL = 500 * time.Millisecond
 )
 
 type FileRegistry[M utils.Clonable[M]] struct {
+	mu                  sync.Mutex
 	localDomainPrefix   string
 	newEmptyCtxSupplier func() utils.ObservableState[M, string]
 	fileContexts        map[string]*StringFileContext[M]
@@ -41,7 +43,103 @@ func CreateNewCRDTFileRegistry(domainLocalPrefix string, newCtxSupplier func() u
 	}
 }
 
-func (fr *FileRegistry[M]) CreateFileCtx(fileName string, pollingInterval time.Duration) error {
+// boolean value is for newly created fileContext
+func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (FileContextInfo[M], error) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+
+	ctx, err := fr.getFileCtx(fileCtx.LocalPath)
+
+	var wasCtxNewlyCreated bool = false
+
+	if err != nil {
+		err := fr.createFileCtx(fileCtx.LocalPath, POLLING_INTERVAL)
+
+		wasCtxNewlyCreated = true
+
+		if err != nil {
+			return FileContextInfo[M]{}, err
+		}
+	}
+
+	ctx, _ = fr.getFileCtx(fileCtx.LocalPath)
+
+	err = ctx.UpdateState(fileCtx.ReadOnlyState)
+
+	if err != nil {
+		return FileContextInfo[M]{}, err
+	}
+
+	info := ctx.GetStateCopy()
+
+	if wasCtxNewlyCreated {
+		info.IsNewlyCreated = true
+	}
+
+	return info, err
+
+}
+
+func (fr *FileRegistry[M]) GetFileCtxInfo(fileName string) (FileContextInfo[M], error) { // fornisce i dati su un singolo file context readonly (per leggerli)
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+
+	ctx, err := fr.getFileCtx(fileName)
+	if err != nil {
+		return FileContextInfo[M]{}, err
+	}
+
+	return ctx.GetStateCopy(), nil
+}
+
+func (fr *FileRegistry[M]) GetFileContent(fileName string) (string, error) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+
+	fctx, err := fr.getFileCtx(fileName)
+
+	if err != nil {
+		return "", err
+	}
+
+	return utils.First(fctx.metaState.Snapshot()), nil
+
+}
+
+func (fr *FileRegistry[M]) GetAllFileCtxInfo() map[string]FileContextInfo[M] { // fornisce i dati su tutti i file context readonly (per spedirli)
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+
+	return fr.getAllFileCtxInfoLocked()
+}
+
+func (fr *FileRegistry[M]) RemoveAllCtx() error {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+
+	ctxInfos := fr.getAllFileCtxInfoLocked()
+
+	var errs []error
+
+	for path := range ctxInfos {
+		if err := fr.removeFileCtx(path); err != nil {
+			errs = append(errs, fmt.Errorf("error while trying to close file context %s: %v", path, err))
+		}
+	}
+
+	return errors.Join(errs...)
+
+}
+
+func (fr *FileRegistry[M]) getAllFileCtxInfoLocked() map[string]FileContextInfo[M] {
+	result := make(map[string]FileContextInfo[M])
+	for fileName, ctx := range fr.fileContexts {
+		result[fileName] = ctx.GetStateCopy()
+	}
+	return result
+}
+
+func (fr *FileRegistry[M]) createFileCtx(fileName string, pollingInterval time.Duration) error {
 
 	fullPath := fr.localDomainPrefix + fileName
 
@@ -72,75 +170,22 @@ func (fr *FileRegistry[M]) CreateFileCtx(fileName string, pollingInterval time.D
 
 }
 
-// boolean value is for newly created fileContext
-func (fr *FileRegistry[M]) UpdateFileCtx(fileCtx FileContextInfo[M]) (bool, error) {
-	ctx, err := fr.getFileCtx(fileCtx.LocalPath)
-
-	var wasCtxNewlyCreated bool = false
-
-	if err != nil {
-		err := fr.CreateFileCtx(fileCtx.LocalPath, POLLING_INTERVAL)
-
-		wasCtxNewlyCreated = true
-
-		if err != nil {
-			return wasCtxNewlyCreated, err
-		}
-	}
-
-	ctx, _ = fr.getFileCtx(fileCtx.LocalPath)
-
-	err = ctx.UpdateState(fileCtx.ReadOnlyState)
-
-	return wasCtxNewlyCreated, err
-
-}
-
-func (fr *FileRegistry[M]) GetFileCtxInfo(fileName string) (FileContextInfo[M], error) { // fornisce i dati su un singolo file context readonly (per leggerli)
-	ctx, err := fr.getFileCtx(fileName)
-	if err != nil {
-		return FileContextInfo[M]{}, err
-	}
-
-	return ctx.GetStateCopy(), nil
-}
-
-func (fr *FileRegistry[M]) GetFileContent(fileName string) (string, error) {
-	fctx, err := fr.getFileCtx(fileName)
-
-	if err != nil {
-		return "", err
-	}
-
-	return utils.First(fctx.metaState.Snapshot()), nil
-
-}
-
-func (fr *FileRegistry[M]) RemoveFileCtx(filename string) error {
+func (fr *FileRegistry[M]) removeFileCtx(filename string) error {
 	ctx, err := fr.getFileCtx(filename)
 
 	if err != nil {
 		return nil
 	}
 
-	ctx.UntrackState()
+	err = ctx.UntrackState()
+
+	if err != nil {
+		return err
+	}
 
 	delete(fr.fileContexts, filename)
 
 	return nil
-
-}
-
-func (fr *FileRegistry[M]) GetAllFileCtxInfo() map[string]FileContextInfo[M] { // fornisce i dati su tutti i file context readonly (per spedirli)
-	result := make(map[string]FileContextInfo[M])
-	for fileName, ctx := range fr.fileContexts {
-		result[fileName] = ctx.GetStateCopy()
-	}
-	return result
-}
-
-func (fr *FileRegistry[M]) GetFileRegistryInfo() []FileContextInfo[M] {
-	return utils.Values(fr.GetAllFileCtxInfo())
 
 }
 

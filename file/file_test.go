@@ -73,12 +73,12 @@ func TestNewFileRegistry(t *testing.T) {
 	var registry *FileRegistry[cvrdt.CvRDTState] = CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 
 	assert.Nil(t, err, "Path error for "+DOMAIN_PATH+FILE_NAME)
 
@@ -100,15 +100,15 @@ func TestFileRegistryCreateDuplicateFile(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err, "First creation should succeed")
 
-	err = registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err = registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.NotNil(t, err, "Creating duplicate file should fail")
 }
 
@@ -123,12 +123,12 @@ func TestFileRegistryUpdateFileCtx(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID_1, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err)
 
 	info, err := registry.GetFileCtxInfo(FILE_NAME)
@@ -156,7 +156,7 @@ func TestFileRegistryUpdateNonExistentFile(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx("non_existent.txt")
+		registry.removeFileCtx("non_existent.txt")
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
@@ -165,9 +165,10 @@ func TestFileRegistryUpdateNonExistentFile(t *testing.T) {
 		ReadOnlyState: cvrdt.GetNewStateFromOp(),
 	}
 
-	wasCreated, err := registry.UpdateFileCtx(info)
+	newInfo, err := registry.UpdateFileCtx(info)
 	assert.Nil(t, err, "Update should work also with nonexisting contexts")
-	assert.True(t, wasCreated, "A new context should be created")
+	assert.True(t, newInfo.IsNewlyCreated, "A new context should be created")
+	assert.Len(t, newInfo.ReadOnlyState, 0, "No operation is added to the new context")
 }
 
 func TestFileRegistryGetFileCtxInfo(t *testing.T) {
@@ -179,12 +180,12 @@ func TestFileRegistryGetFileCtxInfo(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err)
 
 	info, err := registry.GetFileCtxInfo(FILE_NAME)
@@ -220,13 +221,13 @@ func TestFileRegistryRemoveFileCtx(t *testing.T) {
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err)
 
 	_, err = registry.GetFileCtxInfo(FILE_NAME)
 	assert.Nil(t, err, "File context should exist")
 
-	err = registry.RemoveFileCtx(FILE_NAME)
+	err = registry.removeFileCtx(FILE_NAME)
 	assert.Nil(t, err)
 
 	_, err = registry.GetFileCtxInfo(FILE_NAME)
@@ -247,7 +248,7 @@ func TestFileRegistryRemoveNonExistentFileCtx(t *testing.T) {
 
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
-	err := registry.RemoveFileCtx("non_existent.txt")
+	err := registry.removeFileCtx("non_existent.txt")
 	assert.Nil(t, err, "Removing non-existent file should not error")
 }
 
@@ -261,7 +262,7 @@ func TestFileRegistryGetAllFileCtxInfo(t *testing.T) {
 	t.Cleanup(func() {
 		fileNames := []string{"file1.txt", "file2.txt", "file3.txt"}
 		for _, fileName := range fileNames {
-			registry.RemoveFileCtx(fileName)
+			registry.removeFileCtx(fileName)
 		}
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
@@ -272,7 +273,7 @@ func TestFileRegistryGetAllFileCtxInfo(t *testing.T) {
 
 	fileNames := []string{"file1.txt", "file2.txt", "file3.txt"}
 	for _, fileName := range fileNames {
-		err := registry.CreateFileCtx(fileName, POLLING_INTERVAL)
+		err := registry.createFileCtx(fileName, POLLING_INTERVAL)
 		assert.Nil(t, err)
 	}
 
@@ -295,13 +296,15 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err)
+
+	var newUpdatedInfo FileContextInfo[cvrdt.CvRDTState]
 
 	operations := []string{"Hello", " ", "World", "!"}
 	for i, op := range operations {
@@ -313,9 +316,11 @@ func TestFileRegistryMultipleOperations(t *testing.T) {
 		mergedState := currentInfo.ReadOnlyState.Merge(newState)
 
 		currentInfo.ReadOnlyState = mergedState
-		err = utils.Second(registry.UpdateFileCtx(currentInfo))
-		assert.Nil(t, err)
+		newUpdatedInfo, err = registry.UpdateFileCtx(currentInfo)
+		assert.Nil(t, err, "File context %s should be updated without errors", FILE_NAME)
 	}
+
+	assert.Len(t, newUpdatedInfo.ReadOnlyState, len(operations), "File context %s should be updated with %d new operations", FILE_NAME, len(operations))
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -341,12 +346,12 @@ func TestFileRegistryConcurrentAccess(t *testing.T) {
 	registry := CreateNewWootFileRegistry(SITE_ID, DOMAIN_PATH)
 
 	t.Cleanup(func() {
-		registry.RemoveFileCtx(FILE_NAME)
+		registry.removeFileCtx(FILE_NAME)
 		time.Sleep(50 * time.Millisecond)
 		os.RemoveAll(DOMAIN_PATH)
 	})
 
-	err := registry.CreateFileCtx(FILE_NAME, POLLING_INTERVAL)
+	err := registry.createFileCtx(FILE_NAME, POLLING_INTERVAL)
 	assert.Nil(t, err)
 
 	done := make(chan bool, NUM_GOROUTINES)
