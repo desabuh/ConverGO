@@ -23,7 +23,7 @@ func (w CvRDTState) binarySearch(op CRDTOperation) (int, bool) {
 
 	for left < right {
 		mid := left + (right-left)/2
-		cmp := w[mid].Compare(op)
+		cmp := w[mid].CompareOperation(op)
 
 		if cmp == 0 {
 			return mid, true
@@ -51,7 +51,7 @@ func (w CvRDTState) insert(op CRDTOperation) CvRDTState {
 	return w
 }
 
-func (w CvRDTState) Contains(op CRDTOperation) bool {
+func (w CvRDTState) contains(op CRDTOperation) bool {
 	_, exists := w.binarySearch(op)
 	return exists
 }
@@ -66,7 +66,7 @@ func GetNewStateFromOp(ops ...CRDTOperation) CvRDTState {
 
 func (w CvRDTState) Merge(state CvRDTState) CvRDTState {
 	for _, op := range state {
-		if !w.Contains(op) {
+		if !w.contains(op) {
 			w = w.insert(op)
 		}
 	}
@@ -101,7 +101,7 @@ func (w *WootCvrdt) UpdateState(state CvRDTState) error {
 	var newState CvRDTState = make(CvRDTState, 0)
 
 	for _, op := range state {
-		if !w.state.Contains(op) {
+		if !w.state.contains(op) {
 			resOp, err := w.site.ComputeOp(op)
 
 			_, ok := err.(*utils.ErrPendingState)

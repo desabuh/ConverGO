@@ -29,7 +29,7 @@ type LogicalId struct {
 	Clock  map[string]int // Vector clock: maps site ID to clock value (includes own clock)
 }
 
-func (lid LogicalId) GetClock() int {
+func (lid LogicalId) GetLogicalClock() int {
 	if lid.Clock == nil {
 		return 0
 	}
@@ -37,11 +37,11 @@ func (lid LogicalId) GetClock() int {
 }
 
 // Less provides ordering based on vector clock causality
-func (lid LogicalId) Less(other LogicalId) bool {
+func (lid LogicalId) less(other LogicalId) bool {
 
-	if lid.happenedBefore(other) {
+	if lid.HappenedBefore(other) {
 		return true
-	} else if other.happenedBefore(lid) {
+	} else if other.HappenedBefore(lid) {
 		return false
 	}
 
@@ -50,33 +50,33 @@ func (lid LogicalId) Less(other LogicalId) bool {
 }
 
 // Equals checks if two LogicalIds represent the same operation
-func (lid LogicalId) Equals(other LogicalId) bool {
-	return lid.SiteId == other.SiteId && lid.GetClock() == other.GetClock()
+func (lid LogicalId) equals(other LogicalId) bool {
+	return lid.SiteId == other.SiteId && lid.GetLogicalClock() == other.GetLogicalClock()
 }
 
 // String returns a string representation of the LogicalId
 func (lid LogicalId) String() string {
-	return fmt.Sprintf("%s_%d", lid.SiteId, lid.GetClock())
+	return fmt.Sprintf("%s_%d", lid.SiteId, lid.GetLogicalClock())
 }
 
 // Compare returns -1 if this < other, 0 if equal, 1 if this > other
 // Uses the same logic as Less() for consistency
 func (lid LogicalId) Compare(other LogicalId) int {
 	// Same operation
-	if lid.Equals(other) {
+	if lid.equals(other) {
 		return 0
 	}
 
-	if lid.Less(other) {
+	if lid.less(other) {
 		return -1
 	}
 
 	return 1
 }
 
-// happenedBefore checks if this operation causally precedes another
+// HappenedBefore checks if this operation causally precedes another
 // Returns true if lid's vector clock ≤ other's vector clock (and strictly less in at least one entry)
-func (lid LogicalId) happenedBefore(other LogicalId) bool {
+func (lid LogicalId) HappenedBefore(other LogicalId) bool {
 	if lid.Clock == nil || len(lid.Clock) == 0 {
 		return false
 	}
@@ -107,27 +107,14 @@ func (lid LogicalId) happenedBefore(other LogicalId) bool {
 	return strictlyLess
 }
 
-// HappenedBefore checks if this operation causally precedes another (public API)
-func (lid LogicalId) HappenedBefore(other LogicalId) bool {
-	return lid.happenedBefore(other)
-}
-
-// IsConcurrent checks if two operations are causally independent
-func (lid LogicalId) IsConcurrent(other LogicalId) bool {
-	if lid.Equals(other) {
-		return false
-	}
-	return !lid.happenedBefore(other) && !other.happenedBefore(lid)
-}
-
 // CRDTOperation is the general interface for all CRDT operations
 // Returns LogicalId directly instead of string for type safety and efficiency
 type CRDTOperation interface {
 	OpId() LogicalId // Returns the operation's unique identifier
 	Op() OpType
 	Char() string
-	// Compare returns -1 if this operation is less than other, 0 if equal, 1 if greater
-	Compare(other CRDTOperation) int
+	// CompareOperation returns -1 if this operation is less than other, 0 if equal, 1 if greater
+	CompareOperation(other CRDTOperation) int
 }
 
 type WootOperation struct {
@@ -151,8 +138,7 @@ func (w WootOperation) Char() string {
 	return w.Character.AlphaValue
 }
 
-func (w WootOperation) Compare(other CRDTOperation) int {
-	// Use LogicalId's Compare method - simple and consistent!
+func (w WootOperation) CompareOperation(other CRDTOperation) int {
 	return w.Id.Compare(other.OpId())
 }
 
@@ -191,7 +177,7 @@ func (w LocalOperation) Char() string {
 }
 
 // LocalOperation Compare implementation
-func (w LocalOperation) Compare(other CRDTOperation) int {
+func (w LocalOperation) CompareOperation(other CRDTOperation) int {
 	// Compare using LogicalId
 	return w.OpId().Compare(other.OpId())
 }
