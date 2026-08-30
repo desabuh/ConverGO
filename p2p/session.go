@@ -5,16 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/desabuh/convergo/config"
 	"github.com/google/uuid"
-)
-
-const (
-	PING_RETRIEVE   = "PING_RETRIEVE_TOPIC"
-	PING_JOIN       = "PING_JOIN_TOPIC"
-	PUSH            = "PUSH_TOPIC"
-	PEER_CONNECTION = "PEER_CONNECTION_TOPIC"
-	PEER_EXIT       = "PEER_EXIT_TOPIC"
-	CLUSTER_JOIN    = "CLUSTER_JOIN_TOPIC"
 )
 
 type SessionRole int
@@ -53,6 +45,8 @@ type PeerMessageSession[T comparable] struct {
 	Id    SessionId
 	topic TopicName
 
+	config config.BrokerConfig
+
 	transport CommunicationPipe[PeerMessage, T]
 	Recv      chan PeerMessage
 
@@ -74,6 +68,9 @@ func (s *PeerMessageSession[T]) Send(ctx context.Context, data PeerMessage, targ
 		return err
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, s.config.SendTimeout)
+	defer cancel()
+
 	return s.transport.Send(ctx, data, target)
 }
 
@@ -83,6 +80,9 @@ func (s *PeerMessageSession[T]) Broadcast(ctx context.Context, data PeerMessage)
 	if err != nil {
 		return err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.BroadcastTimeout)
+	defer cancel()
 
 	return s.transport.Broadcast(ctx, data)
 }
@@ -114,6 +114,7 @@ func (s *PeerMessageSession[T]) WaitOn(ctx context.Context) (PeerMessage, error)
 
 	select {
 	case msg, ok := <-recvCh:
+
 		if !ok {
 			return PeerMessage{}, fmt.Errorf("session was already closed")
 		}
@@ -167,8 +168,10 @@ type MessageBroker[M comparable, T comparable] interface {
 }
 
 type PeerMessageBroker[T comparable] struct {
-	transport         CommunicationPipe[PeerMessage, T]
-	sessionBufferSize int
+	config.Configurable[config.BrokerConfig]
+	config config.BrokerConfig
+
+	transport CommunicationPipe[PeerMessage, T]
 
 	mu        sync.Mutex // mu protects handlers, consumers, stopped, runCtx, and cancel.
 	handlers  map[TopicName][]TopicHandlerFunc[T, PeerMessage]
@@ -178,16 +181,17 @@ type PeerMessageBroker[T comparable] struct {
 	cancel    context.CancelFunc
 }
 
-func NewPeerMessageBroker[T comparable](
-	transport CommunicationPipe[PeerMessage, T],
-	sessionBufferSize int,
-) *PeerMessageBroker[T] {
+func NewPeerMessageBroker[T comparable](transport CommunicationPipe[PeerMessage, T]) *PeerMessageBroker[T] {
 	return &PeerMessageBroker[T]{
-		transport:         transport,
-		sessionBufferSize: sessionBufferSize,
-		handlers:          make(map[TopicName][]TopicHandlerFunc[T, PeerMessage]),
-		consumers:         make(map[SessionId]*PeerMessageSession[T]),
+		transport: transport,
+		handlers:  make(map[TopicName][]TopicHandlerFunc[T, PeerMessage]),
+		consumers: make(map[SessionId]*PeerMessageSession[T]),
+		config:    config.DefaultBrokerConfig,
 	}
+}
+
+func (s *PeerMessageBroker[T]) SetConfig(config config.BrokerConfig) {
+	s.config = config
 }
 
 func (mb *PeerMessageBroker[T]) RegisterHandler(topic TopicName, handler TopicHandlerFunc[T, PeerMessage]) MessageBroker[PeerMessage, T] {
@@ -299,8 +303,9 @@ func (mb *PeerMessageBroker[T]) createSessionLocked(topic TopicName, role Sessio
 	session := &PeerMessageSession[T]{
 		Id:           id,
 		topic:        topic,
+		config:       mb.config,
 		transport:    mb.transport,
-		Recv:         make(chan PeerMessage, mb.sessionBufferSize),
+		Recv:         make(chan PeerMessage, mb.config.QueueSize),
 		CurrentSeqNo: startingSeqNo,
 		onClose:      mb.removeSession,
 	}
