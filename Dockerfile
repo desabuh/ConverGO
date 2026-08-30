@@ -26,17 +26,7 @@ WORKDIR /
 COPY --from=test-stage /ConverGo/out ConverGo
 
 
-ENV COMMAND_FILE=/test_domain_concurrent/command.txt
-
-ENV DNS=peer
-
-ENV PEER_ID=1
-ENV PEER_NAME=John
-ENV LOCAL_PORT=8080
-
-
-
-EXPOSE 8080
+ARG CACHEBUST=0 
 
 
 ENTRYPOINT ["/ConverGo"]
