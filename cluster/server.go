@@ -26,7 +26,6 @@ func (cs *ClusterServer) Init(ctx context.Context) {
 }
 
 func (cs *ClusterServer) ShutDown() {
-
 	err := cs.ShutDownModule()
 
 	cs.Log("Cluster server shut down with error: %v", err)

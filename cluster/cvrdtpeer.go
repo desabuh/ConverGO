@@ -18,8 +18,6 @@ type CvrdtNetPeer struct {
 	PeerAppNodeModule
 
 	repo repository.CvrdtRepository
-
-	//crdtAdapter repository.CvrdtToRepoFilesAdapter[cvrdt.WootOperation]
 }
 
 func (c *CvrdtNetPeer) Shutdown() error {

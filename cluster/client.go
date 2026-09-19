@@ -5,14 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/desabuh/convergo/history"
 	"github.com/desabuh/convergo/p2p"
-)
-
-const (
-	CLUSTER_SERVER_RESPONSE_TIME = 6 * time.Second
 )
 
 type ClusterInfo struct {
@@ -42,14 +37,19 @@ func (cc *ClusterClient) Init(ctx context.Context) {
 
 func (cc *ClusterClient) ShutDown() {
 
+	err := cc.ShutDownModule()
+
+	//if module is already shutdown no need to log everything again
+	if errors.Is(err, MODULE_ALREADY_SHUT_DOWN) {
+		return
+	}
+
+	cc.Log("Connection with Cluster server %s closed with error: %v", cc.clusterInfo.Format(), err)
+
 	if cc.clientActiveFlag.Load() {
 		err := cc.peerClient.Shutdown()
 		cc.Log("CvrdtClient %s was shut down with error: %v", cc.peerClient.Id.Format(), err)
 	}
-
-	err := cc.ShutDownModule()
-
-	cc.Log("Connection with Cluster server %s closed with error: %v", cc.clusterInfo.Format(), err)
 
 }
 
@@ -144,9 +144,7 @@ func (cc *ClusterClient) pingClusterServer(ctx context.Context, topic p2p.TopicN
 		return []p2p.PeerHostInfo{}, err
 	}
 
-	ctxt, cancel := context.WithTimeout(ctx, CLUSTER_SERVER_RESPONSE_TIME)
-	defer cancel()
-	response, err := session.WaitOn(ctxt)
+	response, err := session.WaitOn(ctx)
 
 	if err != nil {
 		return []p2p.PeerHostInfo{}, fmt.Errorf("Server did not respond: %v", err)
@@ -166,6 +164,7 @@ func (cc *ClusterClient) pingClusterServer(ctx context.Context, topic p2p.TopicN
 	return currentPeers, nil
 }
 
+// method return boolean true if the operation created a new file
 func (cc *ClusterClient) CreateNewLocalOperation(filepath string, opStr string, content string, pos int) (bool, error) {
 	if !cc.clientActiveFlag.Load() {
 		return false, CVRDT_PEER_NOT_INITIALIZED
