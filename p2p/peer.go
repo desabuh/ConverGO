@@ -109,21 +109,6 @@ func (t *TCPPeer) Send(ctx context.Context, data []byte) error {
 	}
 	defer t.Conn.SetWriteDeadline(time.Time{})
 
-	// totalSent := 0
-	// for totalSent < len(data) {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return ctx.Err()
-	// 	default:
-	// 	}
-
-	// 	n, err := t.Conn.Write(data[totalSent:])
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	totalSent += n
-	// }
-
 	return t.streamProcessor.SendByteOnStream(t.Conn, data)
 
 }
@@ -175,30 +160,8 @@ func (t *TCPPeer) Receive(ctx context.Context) (<-chan []byte, <-chan error) {
 // readLoop is the single goroutine that reads from net.Conn and
 // multiplexes data into the active receive session, if any.
 func (t *TCPPeer) readLoop() {
-	////buf := make([]byte, 2048)
 
 	for {
-		// select {
-		// case <-t.done:
-		// 	t.mu.Lock()
-		// 	t.closeSessionLocked(io.EOF)
-		// 	t.mu.Unlock()
-		// 	return
-		// default:
-		// }
-
-		// // n, err := t.Conn.Read(buf)
-		// // fmt.Printf("n: %v\n", n)
-		// // fmt.Printf("err: %v\n", err)
-		// // if err != nil {
-		// // 	t.handleReadError(err)
-		// // 	return
-		// // }
-
-		// // msg := make([]byte, n)
-		// // fmt.Printf("len(msg): %v\n", len(msg))
-
-		// // copy(msg, buf[:n])
 
 		msg, err := t.streamProcessor.ReceiveByteFromStream(t.Conn)
 
@@ -253,9 +216,6 @@ func (t *TCPPeer) handleReadError(err error) {
 		t.closeSessionLocked(nil)
 	}
 
-	// t.closeOnce.Do(func() {
-	// 	close(t.done)
-	// })
 }
 
 // closeSessionLocked closes the current session channels and resets state.
