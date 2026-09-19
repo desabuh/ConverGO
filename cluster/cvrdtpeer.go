@@ -3,7 +3,6 @@ package cluster
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/desabuh/convergo/cvrdt"
 	"github.com/desabuh/convergo/file/repository"
@@ -20,7 +19,7 @@ type CvrdtNetPeer struct {
 
 	repo repository.CvrdtRepository
 
-	crdtAdapter repository.CvrdtToRepoFilesAdapter[p2p.Payload, cvrdt.WootOperation]
+	//crdtAdapter repository.CvrdtToRepoFilesAdapter[cvrdt.WootOperation]
 }
 
 func (c *CvrdtNetPeer) Shutdown() error {
@@ -114,41 +113,27 @@ func (c *CvrdtNetPeer) alignWithPeersData(ctx context.Context, newPeerList []p2p
 
 func (c *CvrdtNetPeer) MergeCvrdtOp(filepath string, opTypeStr string, content string, pos int) (bool, error) {
 
-	var opType cvrdt.OpType
-	if opTypeStr == "insert" {
-		opType = cvrdt.Insertion
-	} else if opTypeStr == "delete" {
-		opType = cvrdt.Deletion
-	} else {
-		return false, fmt.Errorf("Supported operation modes are 'insert' or 'delete' not %s", opTypeStr)
+	fileOp := repository.TextualFileOperation{
+		SourceId: c.Id.Id,
+		FilePath: filepath,
+		OpType:   opTypeStr,
+		Pos:      pos,
+		Content:  content,
 	}
 
-	newState := cvrdt.GetNewStateFromOp(
-		cvrdt.CreateNewLocalOp(opType, pos, content, c.Id.Id),
-	)
-
-	newInfo := repository.CvrdtFileInfo{
-		LocalPath:     filepath,
-		ReadOnlyState: newState,
-	}
-
-	updatedInfo, err := c.repo.UpdateFileCtx(newInfo)
+	status, err := c.repo.InsertCRDTOpInRepo(fileOp)
 
 	if err != nil {
-		return false, fmt.Errorf("error while trying to merge new cvrdt operation on %s context: %v", filepath, err)
+		return false, err
 	}
 
-	if updatedInfo.IsNewlyCreated {
+	if status.NewFile {
 		c.Log("File context %s was created", filepath)
 	}
 
-	if opType == cvrdt.Deletion {
-		content = updatedInfo.ReadOnlyState[len(updatedInfo.ReadOnlyState)-1].Char()
-	}
+	c.Log("Merged local %s operation with id %s of %s in position %d for file context %s", opTypeStr, status.Id, status.TargetChar, pos, filepath)
 
-	c.Log("Merged local %s operation of %s in position %d for file context %s", opType, content, pos, filepath)
-
-	return updatedInfo.IsNewlyCreated, err
+	return status.NewFile, err
 }
 
 func (c *CvrdtNetPeer) VisualizeHistory(filepath string, asDag bool, maxDepth int) (string, error) {
@@ -181,7 +166,7 @@ func (c *CvrdtNetPeer) waitForMessages(ctx context.Context) {
 			c.Log("PUSH request received from %s", msg.Key.PeerHostInfo.Format())
 
 			//contexts, err := c.DecodeFileContexts(msg.Data)
-			contexts, err := c.crdtAdapter.DecodeToRepoFiles(msg.Data)
+			contexts, err := c.repo.DecodeToRepoFiles(msg.Data)
 
 			if err != nil {
 				c.Log("PUSH request payload from %s cannot be unwrapped %v, message discarded", msg.Key.PeerHostInfo.Format(), err)
@@ -245,11 +230,7 @@ func CreateNewTCPWootBasedClient(peerInfo p2p.PeerHostInfo, domainPath string, f
 
 	return &CvrdtNetPeer{
 		PeerAppNodeModule: appNodeModule,
-		repo:              *repository.GetNewCvrdtRepository(peerInfo.Id, domainPath, CRDTfactory),
+		repo:              *repository.GetNewCvrdtRepository(peerInfo.Id, domainPath, CRDTfactory, repository.CvrdtToRepoFilesAdapter[cvrdt.WootOperation]{}),
 	}
 
-	// return &CvrdtNetPeer{
-	// 	PeerAppNodeModule: appNodeModule,
-	// 	registry:          *file.CreateNewWootFileRegistry(peerInfo.Id, domainPath),
-	// }
 }

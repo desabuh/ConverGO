@@ -13,6 +13,7 @@ import (
 type Repository[S utils.Mergeable[S]] struct {
 	history history.History[S]
 	file.FileRegistry[S]
+	RepoFilesAdapter[S]
 }
 
 func (r *Repository[S]) DisplayFileHistory(filePath string, mode string, args map[string]any) (string, error) {
@@ -45,4 +46,25 @@ func (r *Repository[S]) ShutDownRepo() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// This interface is needed to adapt some deserializing approach to return a list of context info
+type RepoFilesAdapter[S any] interface {
+	DecodeToRepoFiles(decoder interface{ Decode(any) error }) ([]file.FileContextInfo[S], error)
+}
+
+// provide info about resulting operation like final id assigned to operation, the char interested to it and wether a new file was created or not
+type FileOperationStatus struct {
+	Id         string
+	TargetChar string
+	NewFile    bool
+}
+
+// define a general textual operation applied on a repository file
+type TextualFileOperation struct {
+	SourceId string
+	FilePath string
+	OpType   string
+	Pos      int
+	Content  string
 }
