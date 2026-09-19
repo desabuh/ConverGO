@@ -264,8 +264,17 @@ func (dag *OperationDAG) String() string {
 	}
 
 	result += "\nEdges:\n"
-	for from, toList := range dag.Edges {
-		for _, to := range toList {
+
+	//also make sure edges are ordered from lower id first
+	fromList := make([]string, 0, len(dag.Edges))
+	for from := range dag.Edges {
+		fromList = append(fromList, from)
+	}
+
+	sort.Strings(fromList)
+
+	for _, from := range fromList {
+		for _, to := range dag.Edges[from] {
 			result += fmt.Sprintf("  %s → %s\n", from, to)
 		}
 	}
