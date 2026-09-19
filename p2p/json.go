@@ -38,7 +38,7 @@ func GetJsonBasedEnvelope[K comparable](key K, data any) (Envelope[K], error) {
 }
 
 type JsonPayload struct {
-	raw json.RawMessage
+	raw []byte
 }
 
 func NewJsonPayload(data []byte) *JsonPayload {
