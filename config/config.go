@@ -14,6 +14,7 @@ type BrokerConfig struct {
 	QueueSize        int
 	SendTimeout      time.Duration
 	BroadcastTimeout time.Duration
+	WaitOnTimeout    time.Duration
 }
 
 type LoggerConfig struct {

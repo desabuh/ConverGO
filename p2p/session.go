@@ -112,6 +112,9 @@ func (s *PeerMessageSession[T]) WaitOn(ctx context.Context) (PeerMessage, error)
 	recvCh := s.Recv
 	s.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, s.config.WaitOnTimeout)
+	defer cancel()
+
 	select {
 	case msg, ok := <-recvCh:
 

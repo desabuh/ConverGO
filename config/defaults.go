@@ -15,6 +15,7 @@ var (
 	SESSION_QUEUE_SIZE = 10
 	SEND_TIMEOUT       = 4 * time.Second
 	BROADCAST_TIMEOUT  = 6 * time.Second
+	WAIT_ON_TIMEOUT    = 12 * time.Second
 
 	LOG_DEFAULT_STREAM = os.Stdout
 )
@@ -59,6 +60,7 @@ func (bdc BrokerDefaultConfigExtractor) ExtractFrom(args map[string]any) BrokerC
 		QueueSize:        utils.GetOrDefault(args, "sessionQueueSize", SESSION_QUEUE_SIZE),
 		SendTimeout:      utils.GetOrDefault(args, "sendTimeout", SEND_TIMEOUT),
 		BroadcastTimeout: utils.GetOrDefault(args, "broadcastTimeout", BROADCAST_TIMEOUT),
+		WaitOnTimeout:    utils.GetOrDefault(args, "waitOnTimeout", WAIT_ON_TIMEOUT),
 	}
 }
 
