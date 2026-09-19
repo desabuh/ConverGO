@@ -93,7 +93,6 @@ type CommunicationPipe[D any, T comparable] interface {
 }
 
 type TCPLayer[D any] struct {
-	listener net.Listener
 	LocalID  PeerHostInfo
 	shutdown Flag
 	msgCh    utils.SafeChannel[D]
@@ -211,17 +210,17 @@ func (t *TCPLayer[D]) ListenFor(id PeerHostInfo) error {
 
 	t.LocalID = id
 
-	t.listener, err = net.Listen("tcp", t.LocalID.Address)
+	listener, err := net.Listen("tcp", t.LocalID.Address)
 
 	if err != nil {
 		return fmt.Errorf("listening error: %s", err)
 	}
 
-	defer t.listener.Close()
+	defer listener.Close()
 
 	go func() {
 		for {
-			conn, err := t.listener.Accept()
+			conn, err := listener.Accept()
 
 			if t.shutdown.IsClosed() {
 				break

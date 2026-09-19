@@ -186,7 +186,7 @@ func TestTransportWithHandshake(t *testing.T) {
 
 	go hostC.ListenFor(localhostInfoC)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -202,17 +202,19 @@ func TestTransportWithHandshake(t *testing.T) {
 
 	require.Nil(t, err, "Peer C should be successfully added")
 
-	require.True(t, len(hostA.peers) == 2)
-	require.True(t, len(hostB.peers) == 1)
-	require.True(t, len(hostC.peers) == 1)
+	time.Sleep(1 * time.Second)
+
+	require.Len(t, hostA.peers, 2)
+	require.Len(t, hostB.peers, 1)
+	require.Len(t, hostC.peers, 1)
 
 	hostA.removePeer(localhostInfoB)
 
 	time.Sleep(1 * time.Second)
 
-	require.True(t, len(hostA.peers) == 1)
-	require.True(t, len(hostB.peers) == 0)
-	require.True(t, len(hostC.peers) == 1)
+	require.Len(t, hostA.peers, 1)
+	require.Len(t, hostB.peers, 0)
+	require.Len(t, hostC.peers, 1)
 
 }
 
@@ -253,8 +255,8 @@ func TestMultipleSessionMessages(t *testing.T) {
 
 	var networkModuleFactory NetworkModuleFactory[PeerMessage, PeerHostInfo, PeerMetadata] = TCPJsonPeerNetworkModuleFactory{ConfigExtractor: config.NeworkDefaultConfigExtractor{}}
 
-	infoA := getTestHostInfo("localhost:8084")
-	infoB := getTestHostInfo("localhost:8085")
+	infoA := getTestHostInfo("localhost:8074")
+	infoB := getTestHostInfo("localhost:8075")
 
 	net1 := networkModuleFactory.Create(infoA)
 	defer net1.Transport.Shutdown()
@@ -267,6 +269,8 @@ func TestMultipleSessionMessages(t *testing.T) {
 	go net1.Transport.ListenFor(infoA)
 
 	go net2.Transport.ListenFor(infoB)
+
+	time.Sleep(2 * time.Second)
 
 	var topic TopicName = "TEST_TOPIC"
 

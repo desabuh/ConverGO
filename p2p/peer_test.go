@@ -16,7 +16,7 @@ func TestSendContextDeadlineTimeout(t *testing.T) {
 
 	peer, err := NewTCPPeer(peerConn)
 
-	assert.Nil(t, err, "wrong transport from connection (not tcp)")
+	assert.Nil(t, err, "connection object was not valid")
 
 	defer peer.Close()
 
@@ -24,7 +24,7 @@ func TestSendContextDeadlineTimeout(t *testing.T) {
 	delta := 5 * time.Millisecond
 	largeByteRapr := 10 << 20
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	largeMsg := make([]byte, largeByteRapr)
