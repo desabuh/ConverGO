@@ -22,6 +22,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 	Register(
 		"edit",
 		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
 			const NUM_PARAMS = 3
 			const INSERT_NUM_PARAMS = 4
 
@@ -54,6 +55,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
+				return
 			}
 
 			wasFileCreated, err := client.CreateNewLocalOperation(filepath, opType, content, pos)
@@ -110,6 +112,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
+				return
 			}
 
 			content, err := client.DisplayData(history.ContentVisual, filepath, 0)
@@ -238,6 +241,13 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				return
 			}
 
+			err = cmd.App.SetDefaultServer(serverInfo)
+
+			if err != nil {
+				cmd.Reply(FromErrStr("Cannot set working server: %v", err))
+				return
+			}
+
 			//server := cluster.CreateNewClusterServer(serverInfo, appNodeModuleFactory)
 
 			//go server.Init(cmd.Context)
@@ -297,6 +307,45 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 			time.Sleep(time.Duration(timeToWait) * time.Millisecond)
 
 			cmd.Reply(FromSuccess("Successfully waited %d ms", nil, timeToWait))
+
+		}).
+	Register(
+		"shutdown",
+		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+			if len(cmd.Args) == 0 || (cmd.Args[0] != "client" && cmd.Args[0] != "server") {
+				cmd.Reply(FromErrStr("First argument should specify <client> or <server>"))
+				return
+			}
+
+			nodeType := cmd.Args[0]
+
+			if nodeType == "client" {
+
+				client, err := cmd.App.GetDefaultClient()
+
+				if err != nil {
+					cmd.Reply(FromErrStr("No default client was set: %v", err))
+					return
+				}
+
+				cmd.App.Remove(client.GetId())
+
+				cmd.Reply(FromSuccess("Client %s was shut down", nil, client.Id.Format()))
+			}
+
+			if nodeType == "server" {
+				server, err := cmd.App.GetDefaultServer()
+
+				if err != nil {
+					cmd.Reply(FromErrStr("No default server was set: %v", err))
+					return
+				}
+
+				cmd.App.Remove(server.GetId())
+
+				cmd.Reply(FromSuccess("Server %s was shut down", nil, server.Id.Format()))
+			}
 
 		}).
 	Register(

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -135,6 +136,8 @@ func (p *CommandParser[S]) Parse(
 	input string,
 ) (*ParsedCommand[S], error) {
 
+	input = p.expandEnv(input, 3)
+
 	fields := strings.Fields(input)
 
 	if len(fields) == 0 {
@@ -156,6 +159,21 @@ func (p *CommandParser[S]) Parse(
 		Command: command,
 		Args:    fields[1:],
 	}, nil
+}
+
+func (p *CommandParser[S]) expandEnv(input string, maxPasses int) string {
+
+	for i := 0; i < maxPasses; i++ {
+		expanded := os.ExpandEnv(input)
+
+		if expanded == input {
+			return input
+		}
+
+		input = expanded
+	}
+
+	return input
 }
 
 func (p *CommandParser[S]) Register(

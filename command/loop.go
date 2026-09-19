@@ -10,6 +10,7 @@ import (
 )
 
 const COMMAND_ID = "COMMAND"
+const TERMINATION_COMMAND = "shutdown_app"
 
 type CommandLoop[S io.Closer] struct {
 	parser *CommandParser[S]
@@ -49,6 +50,11 @@ func (l *CommandLoop[S]) Run(ctx context.Context) error {
 	for scanner.Scan() {
 
 		line := scanner.Text()
+
+		if line == TERMINATION_COMMAND {
+			l.logger.Log("App termination command received")
+			return nil
+		}
 
 		command, err := l.parser.Parse(line)
 

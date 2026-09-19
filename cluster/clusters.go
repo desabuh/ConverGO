@@ -17,6 +17,7 @@ type Node interface {
 	GetId() p2p.PeerHostInfo
 	Init(ctx context.Context)
 	ShutDown()
+	IsActive() bool
 }
 
 type NodeKind string
@@ -65,8 +66,6 @@ func (s *ClusterNodeStore) exists(node Node) bool {
 func (s *ClusterNodeStore) init(ctx context.Context, node Node) error {
 	id := node.GetId()
 
-	//s.mu.Lock()
-
 	_, ok := s.nodes[id]
 
 	if ok {
@@ -74,12 +73,12 @@ func (s *ClusterNodeStore) init(ctx context.Context, node Node) error {
 	}
 
 	s.nodes[id] = node
-	//s.mu.Unlock()
 
-	go func() {
-		defer s.Remove(id)
-		node.Init(ctx)
-	}()
+	// go func() {
+	// 	defer s.Remove(id)
+	// 	node.Init(ctx)
+	// }()
+	go node.Init(ctx)
 
 	return nil
 }
@@ -162,11 +161,16 @@ func (s *ClusterNodeStore) getDefaultID(kind NodeKind) (p2p.PeerHostInfo, error)
 
 func (s *ClusterNodeStore) getNode(id p2p.PeerHostInfo) (Node, error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	node, ok := s.nodes[id]
-	s.mu.Unlock()
 
 	if !ok {
 		return nil, fmt.Errorf("no id is found in the node store")
+	}
+
+	if !node.IsActive() {
+		return nil, fmt.Errorf("node already shut down")
 	}
 
 	return node, nil
