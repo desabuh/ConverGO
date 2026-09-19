@@ -104,7 +104,7 @@ func (w *WootCvrdt) UpdateState(state CvRDTState) error {
 		if !w.state.contains(op) {
 			resOp, err := w.site.ComputeOp(op)
 
-			_, ok := err.(*utils.ErrPendingState)
+			_, ok := err.(*utils.ErrPendingState) //ignore: used for debug
 
 			if err != nil && !ok {
 				return err

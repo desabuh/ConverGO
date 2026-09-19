@@ -102,6 +102,7 @@ type WCharacterData struct {
 	NextId     WCharacterId
 }
 
+// simple utility method to avoid exposure of private fields
 func (w WCharacterData) Import() WCharacter {
 	return WCharacter{
 		id:         w.Id,

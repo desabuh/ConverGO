@@ -154,6 +154,8 @@ func (s *Site) GenerateDel(pos int) (WootOperation, error) {
 func (s *Site) IsExecutable(op WootOperation) bool {
 	targetWChar := op.Character.Import()
 
+	//if operation is Deletion that the Wchar should already exists
+	//if operation is Insertion its previous and next WChar should already be in the site
 	return (op.Type == Deletion && s.characters.Contains(targetWChar.id)) ||
 		(s.characters.Contains(targetWChar.previousId) || s.characters.GetById(targetWChar.previousId).IsSpecialWChar()) &&
 			(s.characters.Contains(targetWChar.nextId) || s.characters.GetById(targetWChar.nextId).IsSpecialWChar())
@@ -178,6 +180,7 @@ func (s *Site) IntegrateIns(wchar *WCharacter, wprev *WCharacter, wnext *WCharac
 		posCP := s.characters.GetPos(wprev.id)
 		posCN := s.characters.GetPos(wnext.id)
 
+		//di should be added to L only if its own prev and next enclose wchar, wprev and wnext in the sequence
 		if posCPDi != -1 && posCNDi != -1 && posCPDi <= posCP && posCN <= posCNDi {
 			L = append(L, di)
 		}
