@@ -163,7 +163,6 @@ func (c *CvrdtNetPeer) waitForMessages(ctx context.Context) {
 		func(ctx context.Context, session PeerSession, msg p2p.PeerMessage) {
 			c.Log("PUSH request received from %s", msg.Key.PeerHostInfo.Format())
 
-			//contexts, err := c.DecodeFileContexts(msg.Data)
 			contexts, err := c.repo.DecodeToRepoFiles(msg.Data)
 
 			if err != nil {
@@ -191,6 +190,11 @@ func (c *CvrdtNetPeer) waitForMessages(ctx context.Context) {
 		}).
 		RegisterHandler(PEER_CONNECTION,
 			func(ctx context.Context, session PeerSession, msg p2p.PeerMessage) {
+
+				if msg.Key.IsError != "" {
+					c.Log("An incoming pairing request has failed: %v", msg.Key.IsError)
+					return
+				}
 
 				c.Log("Pairing request from CvrdtClient %s was successfull!, broadcast current state to everyone:", msg.Key.PeerHostInfo.Format())
 

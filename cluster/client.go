@@ -201,10 +201,14 @@ func (cc *ClusterClient) DisplayData(mode history.OpVisualizationMode, filepath 
 func (cc *ClusterClient) waitForMessages(ctx context.Context) {
 
 	cc.RegisterHandler(PEER_EXIT, func(ctx context.Context, session PeerSession, msg p2p.PeerMessage) {
-		cc.Log("Connection with cluster server %s severed, Start shutting down client...", cc.clusterInfo.Format())
-		cc.ShutDown()
+		cc.Log("Connection with cluster server %s severed", cc.clusterInfo.Format())
 	}).
 		RegisterHandler(PEER_CONNECTION, func(ctx context.Context, session PeerSession, msg p2p.PeerMessage) {
+			if msg.Key.IsError != "" {
+				cc.Log("An incoming pairing request has failed: %v", msg.Key.IsError)
+				return
+			}
+
 			cc.Log("Connection with cluster server %s successfull!", cc.clusterInfo.Format())
 		}).
 		StartWaiting(ctx)

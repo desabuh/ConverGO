@@ -8,7 +8,6 @@ import (
 const (
 	CLUSTER_CLIENT_ID = "Client"
 	CLUSTER_SERVER_ID = "Server"
-	INVALID_ID_PEER   = "-1"
 )
 
 type PeerMessage = Envelope[PeerMetadata]
@@ -36,16 +35,7 @@ type PeerHostInfo struct {
 
 func (info PeerHostInfo) Format() string {
 
-	var peerId = info.Id
-	if !info.isPeerIdValid() {
-		peerId = "Vacant"
-	}
-
-	return fmt.Sprintf("%s_%s_%s", peerId, info.Name, info.Address)
-}
-
-func (info PeerHostInfo) isPeerIdValid() bool {
-	return info.Id != INVALID_ID_PEER
+	return fmt.Sprintf("%s_%s_%s", info.Id, info.Name, info.Address)
 }
 
 func CreateNewHostInfo(id string, name string, address string) PeerHostInfo {
@@ -88,10 +78,6 @@ func GenerateInfoFromUserData(id string, info PeerHostInfo) PeerHostInfo {
 		Id:       id,
 		UserData: info.UserData,
 	}
-}
-
-func GetMissingIdHostInfo(user UserData) PeerHostInfo {
-	return GetInfoFromUserData(INVALID_ID_PEER, user)
 }
 
 func CreateClientInfo(user UserData) PeerHostInfo {
