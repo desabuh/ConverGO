@@ -45,9 +45,9 @@ func (l *CommandLoop[S]) Run(ctx context.Context) error {
 		}
 	}()
 
-	scanner := bufio.NewScanner(l.reader)
+	scanner := NewContextScanner(l.reader)
 
-	for scanner.Scan() {
+	for scanner.Scan(ctx) {
 
 		line := scanner.Text()
 
@@ -73,7 +73,7 @@ func (l *CommandLoop[S]) Run(ctx context.Context) error {
 			reply:   reply,
 		}
 
-		command.Command.Execute(cmdCtx)
+		go command.Command.Execute(cmdCtx)
 
 		select {
 
@@ -98,4 +98,31 @@ func (l *CommandLoop[S]) Run(ctx context.Context) error {
 		}
 	}
 	return scanner.Err()
+}
+
+// A wrapper around bufio.Scanner to make it cancellable though a provided context
+type ContextScanner struct {
+	*bufio.Scanner
+}
+
+func NewContextScanner(r io.Reader) *ContextScanner {
+	return &ContextScanner{
+		Scanner: bufio.NewScanner(r),
+	}
+}
+
+func (s *ContextScanner) Scan(ctx context.Context) bool {
+	done := make(chan bool, 1)
+
+	go func() {
+		done <- s.Scanner.Scan()
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false
+
+	case ok := <-done:
+		return ok
+	}
 }

@@ -51,7 +51,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				content = cmd.Args[3]
 			}
 
-			client, err := cmd.App.GetDefaultClient()
+			client, err := cmd.App.GetClient()
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
@@ -81,10 +81,11 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 		"push",
 		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
 
-			client, err := cmd.App.GetDefaultClient()
+			client, err := cmd.App.GetClient()
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
+				return
 			}
 
 			err = client.DiffuseData(cmd.Context)
@@ -108,7 +109,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			filepath := cmd.Args[0]
 
-			client, err := cmd.App.GetDefaultClient()
+			client, err := cmd.App.GetClient()
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
@@ -152,7 +153,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				mode = history.DagVisual
 			}
 
-			client, err := cmd.App.GetDefaultClient()
+			client, err := cmd.App.GetClient()
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
@@ -208,13 +209,6 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				return
 			}
 
-			err = cmd.App.SetDefaultClient(clientInfo)
-
-			if err != nil {
-				cmd.Reply(FromErrStr("Cannot set working client: %v", err))
-				return
-			}
-
 			cmd.Reply(FromSuccess("Cluster Client %s was created", nil, clientInfo.Format()))
 
 		}).
@@ -241,17 +235,6 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				return
 			}
 
-			err = cmd.App.SetDefaultServer(serverInfo)
-
-			if err != nil {
-				cmd.Reply(FromErrStr("Cannot set working server: %v", err))
-				return
-			}
-
-			//server := cluster.CreateNewClusterServer(serverInfo, appNodeModuleFactory)
-
-			//go server.Init(cmd.Context)
-
 			cmd.Reply(FromSuccess("Cluster Server %s was created", nil, serverInfo.Format()))
 
 		}).
@@ -268,10 +251,11 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			//err := clusterClient.ConnectToCluster(cmd.Context, peerAddress)
 
-			client, err := cmd.App.GetDefaultClient()
+			client, err := cmd.App.GetClient()
 
 			if err != nil {
 				cmd.Reply(FromErrStr("No working client was set: %v", err))
+				return
 			}
 
 			err = client.ConnectToCluster(cmd.Context, peerAddress)
@@ -290,6 +274,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			if len(cmd.Args) < 1 {
 				cmd.Reply(FromErrStr("A time to wait should be supplied in ms"))
+				return
 			}
 
 			timeStr := cmd.Args[0]
@@ -298,10 +283,12 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			if err != nil {
 				cmd.Reply(FromErrStr("Time supplied should be an integer: %w", err))
+				return
 			}
 
 			if timeToWait < 0 {
 				cmd.Reply(FromErrStr("Time supplied should be greater than 0"))
+				return
 			}
 
 			time.Sleep(time.Duration(timeToWait) * time.Millisecond)
@@ -322,7 +309,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 
 			if nodeType == "client" {
 
-				client, err := cmd.App.GetDefaultClient()
+				client, err := cmd.App.GetClient()
 
 				if err != nil {
 					cmd.Reply(FromErrStr("No default client was set: %v", err))
@@ -335,7 +322,7 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 			}
 
 			if nodeType == "server" {
-				server, err := cmd.App.GetDefaultServer()
+				server, err := cmd.App.GetServer()
 
 				if err != nil {
 					cmd.Reply(FromErrStr("No default server was set: %v", err))
@@ -347,52 +334,52 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 				cmd.Reply(FromSuccess("Server %s was shut down", nil, server.Id.Format()))
 			}
 
-		}).
-	Register(
-		"set_working_client",
-		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
-
-			if len(cmd.Args) == 0 {
-				cmd.Reply(FromErrStr("First argument should specify client info as <name>_<address>"))
-				return
-			}
-
-			clientInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_CLIENT_ID)
-
-			if err != nil {
-				cmd.Reply(FromError(err))
-				return
-			}
-
-			err = cmd.App.SetDefaultClient(clientInfo)
-
-			if err != nil {
-				cmd.Reply(FromErrStr("Cannot set working client: %v", err))
-			}
-
-			cmd.Reply(FromSuccess("%s was set as default Client", nil, clientInfo.Format()))
-		}).
-	Register(
-		"set_working_server",
-		func(cmd CommandContext[*cluster.ClusterNodeStore]) {
-
-			if len(cmd.Args) < 1 {
-				cmd.Reply(FromErrStr("First argument should specify client info as <domain>_<address>"))
-				return
-			}
-
-			serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_SERVER_ID)
-
-			if err != nil {
-				cmd.Reply(FromError(err))
-				return
-			}
-
-			err = cmd.App.SetDefaultServer(serverInfo)
-
-			if err != nil {
-				cmd.Reply(FromErrStr("Cannot set working server: %v", err))
-			}
-
-			cmd.Reply(FromSuccess("%s was set as default Server", nil, serverInfo.Format()))
 		})
+	// Register(
+	// 	"set_working_client",
+	// 	func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+	// 		if len(cmd.Args) == 0 {
+	// 			cmd.Reply(FromErrStr("First argument should specify client info as <name>_<address>"))
+	// 			return
+	// 		}
+
+	// 		clientInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_CLIENT_ID)
+
+	// 		if err != nil {
+	// 			cmd.Reply(FromError(err))
+	// 			return
+	// 		}
+
+	// 		err = cmd.App.SetDefaultClient(clientInfo)
+
+	// 		if err != nil {
+	// 			cmd.Reply(FromErrStr("Cannot set working client: %v", err))
+	// 		}
+
+	// 		cmd.Reply(FromSuccess("%s was set as default Client", nil, clientInfo.Format()))
+	// 	}).
+	// Register(
+	// 	"set_working_server",
+	// 	func(cmd CommandContext[*cluster.ClusterNodeStore]) {
+
+	// 		if len(cmd.Args) < 1 {
+	// 			cmd.Reply(FromErrStr("First argument should specify client info as <domain>_<address>"))
+	// 			return
+	// 		}
+
+	// 		serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_SERVER_ID)
+
+	// 		if err != nil {
+	// 			cmd.Reply(FromError(err))
+	// 			return
+	// 		}
+
+	// 		err = cmd.App.SetDefaultServer(serverInfo)
+
+	// 		if err != nil {
+	// 			cmd.Reply(FromErrStr("Cannot set working server: %v", err))
+	// 		}
+
+	// 		cmd.Reply(FromSuccess("%s was set as default Server", nil, serverInfo.Format()))
+	// 	})
