@@ -35,7 +35,7 @@ func (cdh *CvrdtDAGHistory) Display(args map[string]any) (string, error) {
 	}
 
 	if mode == "linear" {
-		return cdh.currentDag.String(), nil
+		return cdh.currentDag.ToASCIILinearization(), nil
 	} else if mode == "dag" {
 
 		depth, ok := args["depth"]
@@ -50,7 +50,7 @@ func (cdh *CvrdtDAGHistory) Display(args map[string]any) (string, error) {
 			return "", fmt.Errorf("'depth' argument should be an integer")
 		}
 
-		return cdh.currentDag.ToASCIITree(dagDepth), nil
+		return cdh.currentDag.ToASCIIDAG(dagDepth), nil
 	}
 
 	return "", fmt.Errorf("Display history mode should be 'linear' or 'dag'")
