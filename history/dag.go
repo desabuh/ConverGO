@@ -245,8 +245,8 @@ func (dag *OperationDAG) Equals(other *OperationDAG) bool {
 	return true
 }
 
-// String provides a human-readable representation of the DAG
-func (dag *OperationDAG) String() string {
+// String provides a human-readable linearization of the DAG
+func (dag *OperationDAG) ToASCIILinearization() string {
 	var result string
 	result += fmt.Sprintf("DAG with %d nodes and %d edges\n", len(dag.Nodes), dag.countEdges())
 	result += "\nNodes:\n"
@@ -290,7 +290,7 @@ func (dag *OperationDAG) countEdges() int {
 	return count
 }
 
-func (dag *OperationDAG) ToASCIITree(maxDepth int) string {
+func (dag *OperationDAG) ToASCIIDAG(maxDepth int) string {
 	if len(dag.Nodes) == 0 {
 		return "Empty DAG\n"
 	}
