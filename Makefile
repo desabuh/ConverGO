@@ -44,13 +44,17 @@ PEERS = $(call PEER_SQ, $(N))
 MAX_PEERS = $(call PEER_SQ, $(MAX_PEERS_NUM))
 
 
-
+DOMAIN_SERVER_PATH = /master/
+TARGET_FILE = file.txt
 
 define RUN_PEER_DETATCHED
 	@docker run -d \
 		--name $(1) \
 		--network $(NETWORK) \
-		-e DNS=$(1) \
+		--env-file $(PROJECT_DIR)/$(TEST_DIR)/.env/global.env \
+		--env-file $(PROJECT_DIR)/$(TEST_DIR)/.env/$(1).env \
+		-e DOMAIN=$(DOMAIN_SERVER_PATH) \
+		-e TARGET_FILE=$(TARGET_FILE) \
 		-e COMMAND_FILE=/$(TEST_DIR)/$(1).txt \
 		-v $(PROJECT_DIR)/$(TEST_DIR)/$(1).txt:/$(TEST_DIR)/$(1).txt \
 		$(IMAGE)
@@ -96,7 +100,6 @@ define RUN_PEER
 	docker run --rm -it \
 		--name $(1) \
 		--network $(NETWORK) \
-		-e DNS=$(1) \
 		$(IMAGE)
 endef
 
@@ -141,14 +144,12 @@ wait:
 # 		echo ============================== \
 # 	)
 
-DOMAIN_SERVER_PATH = /master/
 
 verify:
 
 	@for p in $(PEERS); do \
 		if ! docker cp $$p:$(DOMAIN_SERVER_PATH)/file.txt $$p.txt 2>/dev/null; then \
-			echo "[ERROR] $$p did not write on its own $$p:$(DOMAIN_SERVER_PATH)/file.txt, cannot test convergence"; \
-			exit; \
+			echo "[ERROR] $$p did not write on its own $$p:$(DOMAIN_SERVER_PATH)/file.txt, cannot test convergence" > $$p.txt; \
 		fi; \
 	done; \
 	set -- $(PEERS); base=$$1; \
