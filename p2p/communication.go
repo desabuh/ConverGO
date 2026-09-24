@@ -227,7 +227,6 @@ func (t *TCPLayer[D]) ListenFor(id PeerHostInfo) error {
 			}
 
 			if err != nil {
-				fmt.Println("connection accept error:", err)
 				continue
 			}
 
@@ -237,7 +236,8 @@ func (t *TCPLayer[D]) ListenFor(id PeerHostInfo) error {
 			peer, err := t.handshaker.Shake(ctx, conn, Receiver)
 
 			if err != nil {
-				fmt.Printf("Incoming peer connection request failed: %v", err)
+
+				t.constructAndSendMetaMsg(GetPeerMetadata("PEER_CONNECTION_TOPIC", err.Error(), PeerHostInfo{}))
 				conn.Close()
 				continue
 			}
@@ -278,7 +278,6 @@ func (t *TCPLayer[D]) handlePeer(ctx context.Context, p Peer) {
 
 		select {
 		case msg, ok := <-peerMsgCh:
-			fmt.Printf("TRANSPORT len(msg): %v\n", len(msg))
 
 			if !ok {
 				return
@@ -365,14 +364,6 @@ func (t *TCPLayer[D]) Add(ctx context.Context, target PeerHostInfo) error {
 	}
 
 	t.addPeer(target, peer)
-
-	// if t.isFactorySet {
-	// 	//t.msgCh <- t.localMsgFactory(GetPeerMetadata("PEER_CONNECTION_TOPIC", "", peer.GetPeerInfo()))
-	// 	if env, err := t.localMsgFactory(GetPeerMetadata(PEER_CONNECTION, "", peer.GetPeerInfo()), nil); err == nil {
-	// 		t.msgCh.Send(env)
-	// 	}
-	// }
-	//t.constructAndSendMetaMsg(GetPeerMetadata(PEER_CONNECTION, "", peer.GetPeerInfo()))
 
 	go func(p Peer) {
 		t.handlePeer(ctx, p)
