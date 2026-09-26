@@ -17,11 +17,11 @@ simple decentralized DVCS based on CvRDTs
 
 ## Run a single node in interactive mode (run also Unit tests)
 
-**make dock-test-int NAME_INT=<envname>**
+**make dock-test-int NAME_INT=envname**
 
 ## Run a single node in interactive mode (no Unit tests)
 
-**make dock-test-dev-int NAME_INT=<envname>**
+**make dock-test-dev-int NAME_INT=envname**
 
 
 # Dependencies
