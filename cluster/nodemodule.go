@@ -2,14 +2,9 @@ package cluster
 
 import (
 	"context"
-	"errors"
 
 	"github.com/desabuh/convergo/log"
 	"github.com/desabuh/convergo/p2p"
-)
-
-var (
-	MODULE_ALREADY_SHUT_DOWN = errors.New("AppNodeModule already shut down")
 )
 
 type AppNodeModule[M comparable, T comparable, R comparable] struct {

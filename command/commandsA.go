@@ -5,19 +5,11 @@ import (
 	"time"
 
 	"github.com/desabuh/convergo/cluster"
-	"github.com/desabuh/convergo/config"
 	"github.com/desabuh/convergo/history"
-	"github.com/desabuh/convergo/log"
 	"github.com/desabuh/convergo/p2p"
 )
 
-var logFactory log.GlobalLoggerFactory = log.NewMutexLoggerFactory(config.LoggerDefaultConfigExtractor{})
-var networkModuleFactory p2p.NetworkModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata] = p2p.TCPJsonPeerNetworkModuleFactory{ConfigExtractor: config.NeworkDefaultConfigExtractor{}}
-
-var appNodeModuleFactory cluster.AppNodeModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata] = cluster.AppNodeModuleFactory[p2p.PeerMessage, p2p.PeerHostInfo, p2p.PeerMetadata]{NetworkModuleFactory: networkModuleFactory, LoggerFactory: logFactory}
-
-//var clusterClient *cluster.ClusterClient
-
+// this file define a CommandParser compatible with a ClusterNodeStore context
 var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 	Register(
 		"edit",
@@ -335,51 +327,3 @@ var CommandRegistry = NewCommandParser[*cluster.ClusterNodeStore]().
 			}
 
 		})
-	// Register(
-	// 	"set_working_client",
-	// 	func(cmd CommandContext[*cluster.ClusterNodeStore]) {
-
-	// 		if len(cmd.Args) == 0 {
-	// 			cmd.Reply(FromErrStr("First argument should specify client info as <name>_<address>"))
-	// 			return
-	// 		}
-
-	// 		clientInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_CLIENT_ID)
-
-	// 		if err != nil {
-	// 			cmd.Reply(FromError(err))
-	// 			return
-	// 		}
-
-	// 		err = cmd.App.SetDefaultClient(clientInfo)
-
-	// 		if err != nil {
-	// 			cmd.Reply(FromErrStr("Cannot set working client: %v", err))
-	// 		}
-
-	// 		cmd.Reply(FromSuccess("%s was set as default Client", nil, clientInfo.Format()))
-	// 	}).
-	// Register(
-	// 	"set_working_server",
-	// 	func(cmd CommandContext[*cluster.ClusterNodeStore]) {
-
-	// 		if len(cmd.Args) < 1 {
-	// 			cmd.Reply(FromErrStr("First argument should specify client info as <domain>_<address>"))
-	// 			return
-	// 		}
-
-	// 		serverInfo, err := p2p.ParseHostInfoFromStr(cmd.Args[0], p2p.CLUSTER_SERVER_ID)
-
-	// 		if err != nil {
-	// 			cmd.Reply(FromError(err))
-	// 			return
-	// 		}
-
-	// 		err = cmd.App.SetDefaultServer(serverInfo)
-
-	// 		if err != nil {
-	// 			cmd.Reply(FromErrStr("Cannot set working server: %v", err))
-	// 		}
-
-	// 		cmd.Reply(FromSuccess("%s was set as default Server", nil, serverInfo.Format()))
-	// 	})

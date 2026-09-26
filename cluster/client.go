@@ -39,11 +39,6 @@ func (cc *ClusterClient) ShutDown() {
 
 	err := cc.ShutDownModule()
 
-	//if module is already shutdown no need to log everything again
-	if errors.Is(err, MODULE_ALREADY_SHUT_DOWN) {
-		return
-	}
-
 	cc.Log("Connection with Cluster server %s closed with error: %v", cc.clusterInfo.Format(), err)
 
 	if cc.clientActiveFlag.Load() {
