@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/desabuh/convergo/log"
 )
@@ -33,7 +36,19 @@ func NewCommandLoop[S io.Closer](
 	}
 }
 
-func (l *CommandLoop[S]) Run(ctx context.Context) error {
+func (l *CommandLoop[S]) Run(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	l.cancelCtxOnInterrupt(cancel)
+
+	err := l.startLoop(ctx)
+
+	l.logger.Log("Shutdown command loop with error: %v", err)
+
+}
+
+func (l *CommandLoop[S]) startLoop(ctx context.Context) error {
 
 	defer func() {
 
@@ -100,7 +115,18 @@ func (l *CommandLoop[S]) Run(ctx context.Context) error {
 	return scanner.Err()
 }
 
+func (l *CommandLoop[S]) cancelCtxOnInterrupt(cancel context.CancelFunc) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+}
+
 // A wrapper around bufio.Scanner to make it cancellable though a provided context
+// this is a trick to stop a blocking Scan() though a cancellable context without having to explicitly closing the underlying reader
 type ContextScanner struct {
 	*bufio.Scanner
 }
