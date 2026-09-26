@@ -1,0 +1,6 @@
+wait 2000
+create_cluster_client ${CLIENT} ${SERVER}
+connect_to_cluster ${CVRDT_ADDR}
+edit insert ${TARGET_FILE} 0 Peer1Insertion
+history ${TARGET_FILE} 5
+wait 6000

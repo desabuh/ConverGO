@@ -1,0 +1,16 @@
+wait 2000
+create_cluster_client ${CLIENT} ${SERVER}
+connect_to_cluster ${CVRDT_ADDR}
+wait 5000
+edit insert ${TARGET_FILE} 0 ThisTextWillStay
+edit insert ${TARGET_FILE} 1 ThisTextWillBeRemoved
+push all
+edit insert ${TARGET_FILE} 2 ))
+wait 5000
+push all
+wait 2000
+edit insert ${TARGET_FILE} 3 !!!!
+push all
+wait 2000
+history ${TARGET_FILE} 6
+wait 5000

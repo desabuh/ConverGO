@@ -1,0 +1,9 @@
+create_cluster_client ${CLIENT} ${SERVER}
+wait 2000
+connect_to_cluster ${CVRDT_ADDR}
+wait 3000
+edit delete ${TARGET_FILE} 0 
+push all 
+wait 3000
+history ${TARGET_FILE} 5
+wait 2000

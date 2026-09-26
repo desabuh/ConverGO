@@ -1,0 +1,9 @@
+wait 2000
+create_cluster_client ${CLIENT} ${SERVER}
+connect_to_cluster ${CVRDT_ADDR}
+edit insert ${TARGET_FILE} 0 DivergentText
+wait 2000
+push all
+wait 2000
+history ${TARGET_FILE} 5
+shutdown client

@@ -1,0 +1,14 @@
+create_cluster_server ${SERVER}
+wait 2000
+create_cluster_client ${CLIENT} ${SERVER}
+connect_to_cluster ${CVRDT_ADDR}
+wait 2000
+edit insert ${TARGET_FILE} 0 Go
+push all
+wait 5000
+push all
+history ${TARGET_FILE} 3
+history ${TARGET_FILE}
+wait 1000 
+read ${TARGET_FILE}
+wait 8000

@@ -1,0 +1,14 @@
+create_cluster_server ${SERVER}
+wait 4000
+create_cluster_client ${CLIENT} ${SERVER}
+connect_to_cluster ${CVRDT_ADDR}
+wait 4000
+edit delete ${TARGET_FILE} 1
+edit insert ${TARGET_FILE} 0 Prefix:
+push all
+wait 1000
+edit insert ${TARGET_FILE} 1 ((
+push all
+wait 6000
+history ${TARGET_FILE} 6
+wait 3000
