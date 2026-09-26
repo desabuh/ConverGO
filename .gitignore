@@ -3,4 +3,3 @@ bin/
 *sum
 .exe
 /test_convergent/**/dump/
-/test_convergent/**/.env/
